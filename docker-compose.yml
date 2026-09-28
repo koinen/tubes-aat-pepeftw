@@ -1,0 +1,73 @@
+services:
+  aggregator-db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5433:5432"
+    volumes:
+      - aggregator_db_data:/var/lib/postgresql/data
+  
+  client-api:
+    build:
+      context: .
+      dockerfile: ./cmd/client-api/Dockerfile
+    ports:
+      - "8080:8080"
+
+  auth-db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5434:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+
+  auth:
+    build:
+      context: .
+      dockerfile: ./cmd/auth/Dockerfile
+    ports:
+      - "8082:8080"
+    depends_on:
+      - auth-db
+  
+  aggregator:
+    build:
+      context: .
+      dockerfile: ./cmd/aggregator/Dockerfile
+    ports:
+      - "8081:8080"
+    depends_on:
+      - aggregator-db
+
+
+  dashboard-updater:
+    build:
+      context: .
+      dockerfile: ./cmd/dashboard-updater/Dockerfile
+    ports:
+      - "8083:8080"
+  
+  pvmbg-mock:
+    build:
+      context: .
+      dockerfile: ./cmd/pvmbg-mock/Dockerfile
+    ports:
+      - "8084:8080"
+  
+  bmkg-mock:
+    build:
+      context: .
+      dockerfile: ./cmd/bmkg-mock/Dockerfile
+    ports:
+      - "8085:8080"
+
+volumes:
+  aggregator_db_data:
+  auth_db_data:
