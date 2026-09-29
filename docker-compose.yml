@@ -9,7 +9,9 @@ services:
       - "5433:5432"
     volumes:
       - aggregator_db_data:/var/lib/postgresql/data
-  
+    networks:
+      - store-net
+
   client-api:
     build:
       context: .
@@ -27,6 +29,8 @@ services:
       - "5434:5432"
     volumes:
       - auth_db_data:/var/lib/postgresql/data
+    networks:
+      - auth-store-net
 
   auth:
     build:
@@ -36,6 +40,9 @@ services:
       - "8084:8080"
     depends_on:
       - auth-db
+    networks:
+      - default
+      - auth-store-net
   
   aggregator:
     build:
@@ -45,6 +52,9 @@ services:
       - "8085:8080"
     depends_on:
       - aggregator-db
+    networks:
+      - default
+      - store-net
 
 
   dashboard-updater:
@@ -71,3 +81,7 @@ services:
 volumes:
   aggregator_db_data:
   auth_db_data:
+
+networks:
+  store-net:
+  auth-store-net:
