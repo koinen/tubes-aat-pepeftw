@@ -1,0 +1,235 @@
+openapi: 3.1.0
+info:
+  title: PVMBG Mock API
+  version: 0.1.0
+  description: |
+    Simulasi PVMBG (gunung api). Field entitas mengikuti spesifikasi M1 dan tidak boleh diubah.
+    Delay acak antara PVMBG_DELAY_MIN dan PVMBG_DELAY_MAX (default 500ms dan 3000ms) untuk endpoint data.
+    Seed minimal 20 record, minimal 1 laporan baru per 10 detik. Data bersifat append-only.
+servers:
+  - url: http://localhost:8082
+paths:
+  /volcanic-reports:
+    get:
+      operationId: listVolcanicReports
+      security:
+        - PvmbgToken: []
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: RFC 3339 UTC, inklusif. Mengembalikan VolcanicReport dengan reported_at >= since. Tanpa since, mengembalikan semua.
+          schema:
+            type: string
+            format: date-time
+      description: |
+        Saat outage mode hang, server tidak mengirim respons sama sekali. Saat outage mode error, server langsung menjawab 503.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VolcanicReportList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Outage'
+  /admin/schema-version:
+    post:
+      operationId: setSchemaVersion
+      security:
+        - AdminKey: []
+      description: Berlaku instan tanpa restart. Versi 2 menambahkan confidence_level pada laporan yang dibuat setelah perubahan. Laporan lama tidak berubah. Tetap berfungsi saat outage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version:
+                  type: integer
+                  enum: [1, 2]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/outage:
+    post:
+      operationId: setOutage
+      security:
+        - AdminKey: []
+      description: Berlaku instan. Durasi outage dikendalikan penuh oleh operator. Tetap berfungsi saat outage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+                mode:
+                  type: string
+                  enum: [hang, error]
+                  default: hang
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /health:
+    get:
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Outage aktif.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+components:
+  securitySchemes:
+    PvmbgToken:
+      type: http
+      scheme: bearer
+      bearerFormat: pvmbg.<client_id>.<hmac>
+      description: |
+        Token terstruktur. hmac = HMAC-SHA256(PVMBG_TOKEN_SECRET, client_id) dalam base64url.
+        Mock memegang PVMBG_TOKEN_SECRET. Aggregator hanya memegang token jadi di env PVMBG_TOKEN.
+    AdminKey:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+      description: Nilai dari env PVMBG_ADMIN_KEY. Terpisah dari token akses data.
+  schemas:
+    VolcanicReport:
+      type: object
+      required: [report_id, volcano_id, alert_level, eruption_count_24h, ash_column_height_m, reported_at]
+      properties:
+        report_id:
+          type: string
+        volcano_id:
+          type: string
+          description: Kode gunung api. Daftar kode disepakati dengan tabel referensi VolcanoRef di Aggregator.
+        alert_level:
+          type: string
+          enum: [Normal, Waspada, Siaga, Awas]
+        eruption_count_24h:
+          type: integer
+          minimum: 0
+        ash_column_height_m:
+          type: number
+          format: double
+        reported_at:
+          type: string
+          format: date-time
+        confidence_level:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Hanya ada pada laporan yang dibuat saat schema version 2 aktif.
+    VolcanicReportList:
+      type: object
+      required: [reports, generated_at]
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/VolcanicReport'
+        generated_at:
+          type: string
+          format: date-time
+    AdminState:
+      type: object
+      required: [schema_version, outage]
+      properties:
+        schema_version:
+          type: integer
+          enum: [1, 2]
+        outage:
+          type: object
+          required: [enabled]
+          properties:
+            enabled:
+              type: boolean
+            mode:
+              type: string
+              enum: [hang, error]
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, UPSTREAM_UNAVAILABLE]
+            message:
+              type: string
+            correlation_id:
+              type: string
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          enum: [ok, outage]
+        service:
+          type: string
+  responses:
+    BadRequest:
+      description: Parameter atau body tidak valid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Kredensial tidak ada, formatnya salah, atau tanda tangannya tidak cocok.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Kredensial milik instansi lain, misalnya X-BMKG-Key.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Outage:
+      description: Outage aktif dengan mode error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

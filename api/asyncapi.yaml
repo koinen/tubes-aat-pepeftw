@@ -1,0 +1,145 @@
+asyncapi: 3.0.0
+info:
+  title: BNPB Kafka Events
+  version: 0.1.0
+  description: |
+    Pengiriman at-least-once. Consumer wajib idempoten: abaikan pesan bila version <= version terakhir yang sudah diproses untuk hazard_id tersebut.
+    Setiap consumer memakai group id sendiri, membaca dari offset earliest, dan commit offset setelah pesan selesai diproses.
+defaultContentType: application/json
+servers:
+  docker:
+    host: kafka:9092
+    protocol: kafka
+    description: Dari dalam container.
+  local:
+    host: localhost:9094
+    protocol: kafka
+    description: Dari laptop, hanya untuk pengujian.
+channels:
+  hazardEvents:
+    address: hazard-events
+    description: Setiap HazardEvent baru atau berubah. Dipublikasikan oleh outbox relay di Aggregator.
+    messages:
+      HazardMessage:
+        $ref: '#/components/messages/HazardMessage'
+    bindings:
+      kafka:
+        partitions: 3
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 604800000
+        bindingVersion: 0.5.0
+  authRevocations:
+    address: auth-revocations
+    description: Access token yang dicabut saat refresh. Dipakai client-api sebagai denylist sampai exp.
+    messages:
+      RevocationMessage:
+        $ref: '#/components/messages/RevocationMessage'
+    bindings:
+      kafka:
+        partitions: 1
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 600000
+        bindingVersion: 0.5.0
+operations:
+  publishHazardEvent:
+    action: send
+    summary: aggregator
+    channel:
+      $ref: '#/channels/hazardEvents'
+  consumeHazardEventDashboard:
+    action: receive
+    summary: dashboard-updater, group id dashboard-updater
+    channel:
+      $ref: '#/channels/hazardEvents'
+  consumeHazardEventNotifier:
+    action: receive
+    summary: notifier, group id notifier. Hanya memproses severity SIAGA dan AWAS.
+    channel:
+      $ref: '#/channels/hazardEvents'
+  consumeHazardEventAudit:
+    action: receive
+    summary: audit, group id audit-log
+    channel:
+      $ref: '#/channels/hazardEvents'
+  publishRevocation:
+    action: send
+    summary: auth
+    channel:
+      $ref: '#/channels/authRevocations'
+  consumeRevocation:
+    action: receive
+    summary: client-api, group id client-api-revocations
+    channel:
+      $ref: '#/channels/authRevocations'
+components:
+  messages:
+    HazardMessage:
+      name: HazardMessage
+      headers:
+        $ref: '#/components/schemas/KafkaHeaders'
+      payload:
+        type: object
+        required: [event_id, event_type, hazard_id, version, emitted_at, payload]
+        properties:
+          event_id:
+            type: string
+            format: uuid
+          event_type:
+            type: string
+            enum: [HAZARD_CREATED, HAZARD_UPDATED]
+          hazard_id:
+            type: string
+            format: uuid
+          version:
+            type: integer
+            minimum: 1
+          emitted_at:
+            type: string
+            format: date-time
+          payload:
+            $ref: './common.yaml#/components/schemas/HazardEvent'
+      bindings:
+        kafka:
+          key:
+            type: string
+            format: uuid
+            description: hazard_id
+          bindingVersion: 0.5.0
+    RevocationMessage:
+      name: RevocationMessage
+      headers:
+        $ref: '#/components/schemas/KafkaHeaders'
+      payload:
+        type: object
+        required: [jti, sid, exp, revoked_at]
+        properties:
+          jti:
+            type: string
+            format: uuid
+          sid:
+            type: string
+            format: uuid
+          exp:
+            type: string
+            format: date-time
+            description: Entri denylist dihapus setelah waktu ini.
+          revoked_at:
+            type: string
+            format: date-time
+      bindings:
+        kafka:
+          key:
+            type: string
+            format: uuid
+            description: jti
+          bindingVersion: 0.5.0
+  schemas:
+    KafkaHeaders:
+      type: object
+      required: [correlation_id]
+      properties:
+        correlation_id:
+          type: string
+          format: uuid

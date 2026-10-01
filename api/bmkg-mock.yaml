@@ -1,0 +1,177 @@
+openapi: 3.1.0
+info:
+  title: BMKG Mock API
+  version: 0.1.0
+  description: |
+    Simulasi BMKG (gempa dan tsunami). Field entitas mengikuti spesifikasi M1 dan tidak boleh diubah.
+    Delay tetap 50 sampai 150 ms. Seed minimal 20 record, minimal 1 event baru per 10 detik.
+    Data bersifat append-only. Perubahan selalu berupa record baru.
+servers:
+  - url: http://localhost:8081
+security:
+  - BmkgKey: []
+paths:
+  /seismic-events:
+    get:
+      operationId: listSeismicEvents
+      parameters:
+        - $ref: '#/components/parameters/Since'
+      description: Mengembalikan SeismicEvent dengan occurred_at >= since. Tanpa since, mengembalikan semua.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeismicEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /tsunami-warnings:
+    get:
+      operationId: listTsunamiWarnings
+      parameters:
+        - $ref: '#/components/parameters/Since'
+      description: |
+        Mengembalikan TsunamiWarning dengan issued_at >= since. Tanpa since, mengembalikan semua. Korelasi ke SeismicEvent lewat related_event_id dilakukan oleh Aggregator.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TsunamiWarning'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /health:
+    get:
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+components:
+  securitySchemes:
+    BmkgKey:
+      type: apiKey
+      in: header
+      name: X-BMKG-Key
+      description: Nilai dari env BMKG_API_KEY.
+  parameters:
+    Since:
+      name: since
+      in: query
+      required: false
+      description: RFC 3339 UTC, inklusif.
+      schema:
+        type: string
+        format: date-time
+  schemas:
+    SeismicEvent:
+      type: object
+      required: [event_id, magnitude, depth_km, epicenter_lat, epicenter_lon, region_name, occurred_at, potential_tsunami]
+      properties:
+        event_id:
+          type: string
+        magnitude:
+          type: number
+          format: double
+          description: Skala Mw.
+        depth_km:
+          type: number
+          format: double
+        epicenter_lat:
+          type: number
+          format: double
+        epicenter_lon:
+          type: number
+          format: double
+        region_name:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        potential_tsunami:
+          type: boolean
+    TsunamiWarning:
+      type: object
+      description: Hanya untuk SeismicEvent dengan potential_tsunami = true.
+      required: [warning_id, related_event_id, threat_level, affected_zones, estimated_arrival, issued_at]
+      properties:
+        warning_id:
+          type: string
+        related_event_id:
+          type: string
+          description: event_id dari SeismicEvent terkait.
+        threat_level:
+          type: string
+          enum: [Waspada, Siaga, Awas]
+        affected_zones:
+          type: array
+          items:
+            type: string
+        estimated_arrival:
+          type: string
+          format: date-time
+        issued_at:
+          type: string
+          format: date-time
+          description: Field tambahan di luar spesifikasi. Waktu BMKG menerbitkan peringatan, dipakai untuk filter since.
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN]
+            message:
+              type: string
+            correlation_id:
+              type: string
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+  responses:
+    BadRequest:
+      description: since tidak valid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: X-BMKG-Key tidak ada atau salah.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Kredensial milik instansi lain, misalnya Authorization Bearer token PVMBG.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

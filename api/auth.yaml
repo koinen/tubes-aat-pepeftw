@@ -1,0 +1,178 @@
+openapi: 3.1.0
+info:
+  title: BNPB Auth Service
+  version: 0.1.0
+  description: |
+    Menerbitkan access token JWT (EdDSA, Ed25519) untuk tiga klien dengan kredensial berbeda.
+    client-api memverifikasi token secara lokal memakai JWKS, tanpa memanggil service ini per request.
+
+    | client_id | scope | refresh |
+    |---|---|---|
+    | media | hazard:read:summary | tidak |
+    | field-team | hazard:read:raw | ya |
+    | bnpb-ops | hazard:read:raw | tidak |
+
+    Refresh memakai rotasi. Refresh token lama ditandai terpakai, access token lama dicabut dan jti-nya dipublikasikan ke topic auth-revocations.
+    Refresh token yang dipakai ulang membuat seluruh sesi dicabut.
+servers:
+  - url: http://localhost:8084
+  - url: http://auth:8080
+paths:
+  /token:
+    post:
+      operationId: issueToken
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/ClientCredentialsRequest'
+                - $ref: '#/components/schemas/RefreshTokenRequest'
+              discriminator:
+                propertyName: grant_type
+                mapping:
+                  client_credentials: '#/components/schemas/ClientCredentialsRequest'
+                  refresh_token: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          description: UNAUTHORIZED. client_secret salah, atau refresh token tidak dikenal, kedaluwarsa, atau sudah terpakai.
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/ErrorResponse'
+  /.well-known/jwks.json:
+    get:
+      operationId: getJwks
+      description: Public key untuk verifikasi access token.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Jwks'
+  /health:
+    get:
+      operationId: health
+      description: checks berisi store dan kafka.
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Health'
+        '503':
+          $ref: './common.yaml#/components/responses/HealthUnavailable'
+components:
+  schemas:
+    ClientId:
+      type: string
+      enum: [media, field-team, bnpb-ops]
+    Scope:
+      type: string
+      enum: ['hazard:read:summary', 'hazard:read:raw']
+    ClientCredentialsRequest:
+      type: object
+      required: [grant_type, client_id, client_secret]
+      properties:
+        grant_type:
+          type: string
+          const: client_credentials
+        client_id:
+          $ref: '#/components/schemas/ClientId'
+        client_secret:
+          type: string
+    RefreshTokenRequest:
+      type: object
+      required: [grant_type, refresh_token]
+      properties:
+        grant_type:
+          type: string
+          const: refresh_token
+        refresh_token:
+          type: string
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token:
+          type: string
+          description: JWT dengan klaim AccessTokenClaims.
+        token_type:
+          type: string
+          const: Bearer
+        expires_in:
+          type: integer
+          description: Detik. Default 60 dari env ACCESS_TOKEN_TTL.
+        scope:
+          $ref: '#/components/schemas/Scope'
+        refresh_token:
+          type: string
+          description: Hanya untuk field-team. Sekali pakai. Default berlaku 30 menit dari env REFRESH_TOKEN_TTL.
+    AccessTokenClaims:
+      type: object
+      required: [jti, sid, sub, scope, iss, aud, iat, exp]
+      properties:
+        jti:
+          type: string
+          format: uuid
+        sid:
+          type: string
+          format: uuid
+        sub:
+          $ref: '#/components/schemas/ClientId'
+        scope:
+          $ref: '#/components/schemas/Scope'
+        iss:
+          type: string
+          const: bnpb-auth
+        aud:
+          type: string
+          const: bnpb-client-api
+        iat:
+          type: integer
+          description: Unix epoch detik.
+        exp:
+          type: integer
+          description: Unix epoch detik. iat + ACCESS_TOKEN_TTL.
+    Jwks:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            required: [kty, crv, x, kid, alg, use]
+            properties:
+              kty:
+                type: string
+                const: OKP
+              crv:
+                type: string
+                const: Ed25519
+              x:
+                type: string
+                description: Public key base64url.
+              kid:
+                type: string
+              alg:
+                type: string
+                const: EdDSA
+              use:
+                type: string
+                const: sig

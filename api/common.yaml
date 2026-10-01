@@ -1,0 +1,239 @@
+openapi: 3.1.0
+info:
+  title: BNPB Common Schemas
+  version: 0.1.0
+  description: Skema bersama untuk API BNPB (aggregator internal dan client-api). Mock BMKG dan PVMBG tidak memakai file ini.
+paths: {}
+components:
+  schemas:
+    Source:
+      type: string
+      enum: [BMKG, PVMBG]
+    HazardType:
+      type: string
+      enum: [SEISMIC, VOLCANIC]
+    Severity:
+      type: string
+      enum: [NORMAL, WASPADA, SIAGA, AWAS]
+    HazardEvent:
+      type: object
+      description: Format kanonik. x-classification menentukan field mana yang boleh dilihat scope summary (RINGKASAN) atau hanya scope raw (MENTAH).
+      required: [hazard_id, source, source_ref_id, hazard_type, severity, area_name, latitude, longitude, occurred_at, ingested_at, attributes, version, updated_at]
+      properties:
+        hazard_id:
+          type: string
+          format: uuid
+          description: UUIDv5 dari source dan source_ref_id.
+          x-classification: RINGKASAN
+        source:
+          $ref: '#/components/schemas/Source'
+          x-classification: RINGKASAN
+        source_ref_id:
+          type: string
+          description: event_id (BMKG) atau report_id (PVMBG).
+          x-classification: MENTAH
+        hazard_type:
+          $ref: '#/components/schemas/HazardType'
+          x-classification: RINGKASAN
+        severity:
+          $ref: '#/components/schemas/Severity'
+          x-classification: RINGKASAN
+        area_name:
+          type: string
+          x-classification: RINGKASAN
+        latitude:
+          type: number
+          format: double
+          x-classification: MENTAH
+        longitude:
+          type: number
+          format: double
+          x-classification: MENTAH
+        occurred_at:
+          type: string
+          format: date-time
+          x-classification: RINGKASAN
+        ingested_at:
+          type: string
+          format: date-time
+          x-classification: RINGKASAN
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Field sumber tanpa padanan kanonik, termasuk field baru seperti confidence_level.
+          x-classification: MENTAH
+        version:
+          type: integer
+          minimum: 1
+          description: Naik setiap ada perubahan pada hazard.
+          x-classification: RINGKASAN
+        updated_at:
+          type: string
+          format: date-time
+          x-classification: RINGKASAN
+    SourceStatusEntry:
+      type: object
+      required: [status, last_success_at, stale_since]
+      properties:
+        status:
+          type: string
+          enum: [OK, STALE, UNAVAILABLE]
+        last_success_at:
+          type: [string, 'null']
+          format: date-time
+        stale_since:
+          type: [string, 'null']
+          format: date-time
+          description: Null bila status OK.
+    SourcesMap:
+      type: object
+      required: [BMKG, PVMBG]
+      properties:
+        BMKG:
+          $ref: '#/components/schemas/SourceStatusEntry'
+        PVMBG:
+          $ref: '#/components/schemas/SourceStatusEntry'
+    ErrorCode:
+      type: string
+      enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, FORBIDDEN_FIELD, NOT_FOUND, RATE_LIMITED, UPSTREAM_UNAVAILABLE, INTERNAL]
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlation_id]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+            correlation_id:
+              type: string
+              format: uuid
+    HealthResponse:
+      type: object
+      required: [status, service, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        service:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ok, unavailable]
+  parameters:
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      description: UUID v4. Dibuat service pertama bila tidak ada.
+      schema:
+        type: string
+        format: uuid
+    HazardTypeQuery:
+      name: type
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/HazardType'
+    Since:
+      name: since
+      in: query
+      required: false
+      description: RFC 3339 UTC. Mengembalikan hazard dengan updated_at >= since.
+      schema:
+        type: string
+        format: date-time
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    HazardId:
+      name: hazard_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  headers:
+    CorrelationId:
+      description: Correlation ID yang dipakai untuk request ini.
+      schema:
+        type: string
+        format: uuid
+    RetryAfter:
+      description: Jumlah detik sebelum klien boleh mencoba lagi.
+      schema:
+        type: integer
+        minimum: 1
+  responses:
+    BadRequest:
+      description: VALIDATION_ERROR
+      headers:
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: UNAUTHORIZED. Kredensial tidak ada, tidak valid, kedaluwarsa, atau dicabut.
+      headers:
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: NOT_FOUND
+      headers:
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: RATE_LIMITED. Tidak dihitung sebagai error pada load test.
+      headers:
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UpstreamUnavailable:
+      description: UPSTREAM_UNAVAILABLE. Dependency tidak dapat dijangkau dan tidak ada data cadangan.
+      headers:
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Health:
+      description: Sehat.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HealthResponse'
+    HealthUnavailable:
+      description: Ada dependency wajib yang gagal.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HealthResponse'

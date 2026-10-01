@@ -1,0 +1,195 @@
+openapi: 3.1.0
+info:
+  title: BNPB Client API
+  version: 0.1.0
+  description: |
+    API publik untuk Media, Tim Lapangan, dan BNPB Ops. Read-only.
+    Data diambil dari Aggregator Internal API, lalu field disaring sesuai scope token.
+    Scope hazard:read:summary hanya menerima field RINGKASAN. Scope hazard:read:raw menerima semua field.
+    Tidak pernah mengembalikan 500 pada skenario outage PVMBG dan tidak pernah menggantung.
+servers:
+  - url: http://localhost:8080
+security:
+  - BearerJwt: []
+paths:
+  /hazards:
+    get:
+      operationId: listHazards
+      description: Diurutkan berdasarkan updated_at terbaru. sources selalu disertakan agar klien melihat kebaruan data.
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - $ref: './common.yaml#/components/parameters/HazardTypeQuery'
+        - $ref: './common.yaml#/components/parameters/Since'
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Fields'
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, sources]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HazardView'
+                  sources:
+                    $ref: './common.yaml#/components/schemas/SourcesMap'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenField'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+  /hazards/{hazard_id}:
+    get:
+      operationId: getHazard
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - $ref: './common.yaml#/components/parameters/HazardId'
+        - $ref: '#/components/parameters/Fields'
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/HazardView'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenField'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+  /sources/status:
+    get:
+      operationId: getSourcesStatus
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: './common.yaml#/components/schemas/SourcesMap'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+  /health:
+    get:
+      operationId: health
+      security: []
+      description: Tidak terkena rate limit. checks berisi aggregator dan jwks.
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Health'
+        '503':
+          $ref: './common.yaml#/components/responses/HealthUnavailable'
+components:
+  securitySchemes:
+    BearerJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token dari Auth Service. Diverifikasi lokal (tanda tangan, exp, iss, aud) dan dicek terhadap denylist dari topic auth-revocations.
+  parameters:
+    Fields:
+      name: fields
+      in: query
+      required: false
+      description: |
+        Daftar field dipisah koma. Default sesuai scope.
+        Nama field yang tidak dikenal menghasilkan 400. Field MENTAH dengan scope hazard:read:summary menghasilkan 403 FORBIDDEN_FIELD.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [hazard_id, source, source_ref_id, hazard_type, severity, area_name, latitude, longitude, occurred_at, ingested_at, attributes, version, updated_at]
+  schemas:
+    HazardView:
+      type: object
+      description: Proyeksi HazardEvent. Field MENTAH hanya ada untuk scope hazard:read:raw. Bila fields dipakai, hanya field yang diminta yang ada.
+      properties:
+        hazard_id:
+          type: string
+          format: uuid
+        source:
+          $ref: './common.yaml#/components/schemas/Source'
+        hazard_type:
+          $ref: './common.yaml#/components/schemas/HazardType'
+        severity:
+          $ref: './common.yaml#/components/schemas/Severity'
+        area_name:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        ingested_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+        source_ref_id:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        attributes:
+          type: object
+          additionalProperties: true
+  responses:
+    ForbiddenField:
+      description: FORBIDDEN_FIELD. Token sah, tetapi scope tidak mengizinkan field yang diminta.
+      headers:
+        X-Correlation-ID:
+          $ref: './common.yaml#/components/headers/CorrelationId'
+      content:
+        application/json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: FORBIDDEN_FIELD
+              message: 'Scope hazard:read:summary tidak mengizinkan field: latitude'
+              correlation_id: 7f3c9a2e-4b1d-4e8a-9c2f-1a2b3c4d5e6f

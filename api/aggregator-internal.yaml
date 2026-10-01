@@ -1,0 +1,127 @@
+openapi: 3.1.0
+info:
+  title: Aggregator Internal API
+  version: 0.1.0
+  description: |
+    Satu-satunya jalur ke Canonical Store. Hanya dipanggil client-api.
+    Selalu membaca dari Postgres dan tidak pernah memanggil BMKG atau PVMBG pada jalur request.
+    Mengembalikan HazardEvent lengkap. Penyaringan field per scope dilakukan client-api.
+servers:
+  - url: http://localhost:8085
+  - url: http://aggregator:8080
+security:
+  - InternalKey: []
+paths:
+  /internal/hazards:
+    get:
+      operationId: listHazards
+      description: Diurutkan berdasarkan updated_at terbaru.
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - $ref: './common.yaml#/components/parameters/HazardTypeQuery'
+        - $ref: './common.yaml#/components/parameters/Since'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, sources]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: './common.yaml#/components/schemas/HazardEvent'
+                  sources:
+                    $ref: './common.yaml#/components/schemas/SourcesMap'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+  /internal/hazards/{hazard_id}:
+    get:
+      operationId: getHazard
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - $ref: './common.yaml#/components/parameters/HazardId'
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: './common.yaml#/components/schemas/HazardEvent'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+  /internal/sources/status:
+    get:
+      operationId: getSourcesStatus
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [BMKG, PVMBG]
+                    properties:
+                      BMKG:
+                        $ref: '#/components/schemas/SourceStatusDetail'
+                      PVMBG:
+                        $ref: '#/components/schemas/SourceStatusDetail'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+  /health:
+    get:
+      operationId: health
+      security: []
+      description: checks berisi postgres dan kafka.
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Health'
+        '503':
+          $ref: './common.yaml#/components/responses/HealthUnavailable'
+components:
+  securitySchemes:
+    InternalKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Key
+      description: Nilai dari env INTERNAL_API_KEY.
+  schemas:
+    SourceStatusDetail:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/SourceStatusEntry'
+        - type: object
+          required: [breaker_state]
+          properties:
+            breaker_state:
+              type: string
+              enum: [CLOSED, OPEN, HALF_OPEN]
+            last_error:
+              type: [string, 'null']
