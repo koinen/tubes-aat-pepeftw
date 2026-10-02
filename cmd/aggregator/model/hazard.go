@@ -5,15 +5,15 @@ import "time"
 type Source string
 
 const (
-	SourceBMKG 	Source = "BMKG"
+	SourceBMKG  Source = "BMKG"
 	SourcePVMBG Source = "PVMBG"
 )
 
 type HazardType string
 
 const (
-	HazardSeismic 	HazardType = "SEISMIC"
-	HazardVolcanic 	HazardType = "VOLCANIC"
+	HazardSeismic  HazardType = "SEISMIC"
+	HazardVolcanic HazardType = "VOLCANIC"
 )
 
 type Severity string
