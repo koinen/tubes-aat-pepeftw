@@ -2,13 +2,14 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"tubes-aat-pepeftw/internal/shared"
 )
 
 type Config struct {
 	Server ServerConfig
 	Redis  RedisConfig
-	JWT    JWTConfig
+	Token  TokenConfig
 }
 
 type ServerConfig struct {
@@ -20,8 +21,22 @@ type RedisConfig struct {
 	Port string
 }
 
-type JWTConfig struct {
-	PrivateKey string
+type TokenConfig struct {
+	AccessTokenTTL  int // in seconds
+	PrivateKey      string
+	MediaSecret     string
+	FieldTeamSecret string
+	BnpbOpsSecret   string
+	JWTIssuer       string
+	JWTAudience     string
+}
+
+func loadPrivateKey(path string) (string, error) {
+	privateKey, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read private key from %s: %v", path, err)
+	}
+	return string(privateKey), nil
 }
 
 func LoadConfig() (*Config, error) {
@@ -44,17 +59,28 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("redis host or port is not set")
 	}
 
-	jwtCfg := JWTConfig{
-		PrivateKey: shared.GetEnv("JWT_PRIVATE_KEY", ""),
+	privateKey, err := loadPrivateKey(shared.GetEnv("PRIVATE_KEY_PATH", "./secrets/auth_priv.pem"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load private key: %v", err)
 	}
 
-	if jwtCfg.PrivateKey == "" {
+	tokenCfg := TokenConfig{
+		PrivateKey:      privateKey,
+		AccessTokenTTL:  shared.GetEnvInt("ACCESS_TOKEN_TTL", 60), // seconds
+		MediaSecret:     shared.GetEnv("MEDIA_SECRET", ""),
+		FieldTeamSecret: shared.GetEnv("LAPANGAN_SECRET", ""),
+		BnpbOpsSecret:   shared.GetEnv("BNPB_SECRET", ""),
+		JWTIssuer:       shared.GetEnv("JWT_ISSUER", "auth-service"),
+		JWTAudience:     shared.GetEnv("JWT_AUDIENCE", "bnpb-ops"),
+	}
+
+	if tokenCfg.PrivateKey == "" {
 		return nil, fmt.Errorf("JWT private key is not set")
 	}
 
 	return &Config{
 		Server: serverCfg,
 		Redis:  redisCfg,
-		JWT:    jwtCfg,
+		Token:  tokenCfg,
 	}, nil
 }
