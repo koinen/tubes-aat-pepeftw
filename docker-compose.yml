@@ -53,6 +53,9 @@ services:
     networks:
       - default
       - auth-store-net
+    volumes:
+      - ./secrets/auth_priv.pem:/app/secrets/auth_priv.pem:ro
+      - ./secrets/auth_pub.pem:/app/secrets/auth_pub.pem:ro
   
   aggregator:
     build:

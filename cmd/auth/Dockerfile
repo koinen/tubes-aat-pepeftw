@@ -6,8 +6,10 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o ./bin/auth ./cmd/auth
+# avoid copying other services and files that are not needed for the build
+COPY internal/ internal/
+COPY cmd/auth/ cmd/auth/
+RUN CGO_ENABLED=0 GOOS=linux go build -o ./bin/auth .
 
 # Stage 2: Create a minimal image for the application
 FROM alpine:latest
