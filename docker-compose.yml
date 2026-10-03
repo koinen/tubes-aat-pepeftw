@@ -18,6 +18,11 @@ services:
       dockerfile: ./cmd/client-api/Dockerfile
     ports:
       - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/client-api/.env
+        required: false
 
   auth-db:
     image: postgres:17
@@ -38,6 +43,11 @@ services:
       dockerfile: ./cmd/auth/Dockerfile
     ports:
       - "8084:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/auth/.env
+        required: false
     depends_on:
       - auth-db
     networks:
@@ -50,12 +60,16 @@ services:
       dockerfile: ./cmd/aggregator/Dockerfile
     ports:
       - "8085:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/aggregator/.env
+        required: false
     depends_on:
       - aggregator-db
     networks:
       - default
       - store-net
-
 
   dashboard-updater:
     build:
@@ -63,6 +77,23 @@ services:
       dockerfile: ./cmd/dashboard-updater/Dockerfile
     ports:
       - "8083:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/dashboard-updater/.env
+        required: false
+
+  notifier:
+    build:
+      context: .
+      dockerfile: ./cmd/notifier/Dockerfile
+    ports:
+      - "8086:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/notifier/.env
+        required: false
   
   pvmbg-mock:
     build:
@@ -70,6 +101,11 @@ services:
       dockerfile: ./cmd/pvmbg-mock/Dockerfile
     ports:
       - "8082:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/pvmbg-mock/.env
+        required: false
   
   bmkg-mock:
     build:
@@ -77,6 +113,11 @@ services:
       dockerfile: ./cmd/bmkg-mock/Dockerfile
     ports:
       - "8081:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/bmkg-mock/.env
+        required: false
 
   kafka:
     image: apache/kafka:4.3.1
