@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -9,12 +10,18 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"tubes-aat-pepeftw/cmd/aggregator/config"
 	"tubes-aat-pepeftw/cmd/aggregator/fixture"
 	"tubes-aat-pepeftw/cmd/aggregator/httpapi"
 	"tubes-aat-pepeftw/cmd/aggregator/logging"
-	"tubes-aat-pepeftw/cmd/aggregator/repository/memory"
+	"tubes-aat-pepeftw/cmd/aggregator/repository/postgres"
+)
+
+const (
+	dbWaitTimeout = 30 * time.Second
+	dbPingTimeout = 2 * time.Second
 )
 
 func main() {
@@ -31,9 +38,23 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	repo := memory.New()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	if err := waitForDB(ctx, pool, log); err != nil {
+		return err
+	}
+	log.Info("database_connected")
+
+	repo := postgres.New(pool)
 	if cfg.SeedFixtures {
-		if err := fixture.Run(context.Background(), repo, repo, time.Now().UTC().Truncate(time.Second)); err != nil {
+		if err := fixture.Run(ctx, repo, repo, time.Now().UTC().Truncate(time.Second)); err != nil {
 			return err
 		}
 		log.Info("fixtures_seeded")
@@ -42,12 +63,11 @@ func run(log *slog.Logger) error {
 	app := httpapi.New(httpapi.Deps{
 		Hazards:     repo,
 		Statuses:    repo,
+		Ping:        pool.Ping,
 		InternalKey: cfg.InternalAPIKey,
 		Log:         log,
 	})
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -59,4 +79,26 @@ func run(log *slog.Logger) error {
 
 	log.Info("aggregator_started", "port", cfg.Port)
 	return app.Listen(":"+cfg.Port, fiber.ListenConfig{DisableStartupMessage: true})
+}
+
+func waitForDB(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) error {
+	deadline := time.Now().Add(dbWaitTimeout)
+	for attempt := 1; ; attempt++ {
+		pingCtx, cancel := context.WithTimeout(ctx, dbPingTimeout)
+		err := pool.Ping(pingCtx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("database unreachable after %s: %w", dbWaitTimeout, err)
+		}
+		log.Warn("database_unavailable", "attempt", attempt, "error", err.Error())
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
 }

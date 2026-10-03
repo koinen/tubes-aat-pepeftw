@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 
@@ -13,6 +14,7 @@ import (
 type Deps struct {
 	Hazards     repository.HazardReader
 	Statuses    repository.SourceStatusRepository
+	Ping        func(context.Context) error
 	InternalKey string
 	Log         *slog.Logger
 }
@@ -28,7 +30,7 @@ func New(d Deps) *fiber.App {
 	h := handlers{hazards: d.Hazards, statuses: d.Statuses}
 
 	app.Use(correlationID, requestLogger(d.Log, onError), recoverer.New())
-	app.Get("/health", health)
+	app.Get("/health", health(d.Ping))
 
 	internal := app.Group("/internal", requireInternalKey(d.InternalKey))
 	internal.Get("/hazards", h.listHazards)
