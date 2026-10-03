@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"tubes-aat-pepeftw/cmd/auth/internal/config"
+	"tubes-aat-pepeftw/cmd/auth/internal/health"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -15,10 +16,10 @@ func main() {
 
 	app := fiber.New()
 
-	app.Get("/", func(c fiber.Ctx) {
-		c.Send([]byte("Hello, World!"))
-	})
+	// handlers
+	healthHandler := health.NewHealthHandler()
 
-	log.Printf("Starting Auth Service...")
+	app.Get("/health", healthHandler.HealthCheck)
+
 	app.Listen(":" + config.Server.Port)
 }
