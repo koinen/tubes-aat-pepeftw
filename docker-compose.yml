@@ -48,6 +48,9 @@ services:
     build:
       context: .
       dockerfile: ./cmd/aggregator/Dockerfile
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      SEED_FIXTURES: ${SEED_FIXTURES:-true}
     ports:
       - "8085:8080"
     depends_on:
