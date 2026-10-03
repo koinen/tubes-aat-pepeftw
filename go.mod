@@ -10,6 +10,7 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.2.2 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/gofiber/schema v1.8.3 // indirect
 	github.com/gofiber/utils/v2 v2.4.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
@@ -19,10 +20,12 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.30 // indirect
+	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.14.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.73.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect

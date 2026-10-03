@@ -6,6 +6,8 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type Client struct {
@@ -14,17 +16,21 @@ type Client struct {
 }
 
 type tokenHandler struct {
-	clients map[string]Client
-	cfg     config.TokenConfig
+	clients     map[string]Client
+	cfg         config.TokenConfig
+	redisClient *redis.Client
 }
 
-func NewTokenHandler(cfg config.TokenConfig) *tokenHandler {
+func NewTokenHandler(
+	cfg config.TokenConfig,
+	redisClient *redis.Client,
+) *tokenHandler {
 	clients := map[string]Client{
 		"media":      {Scope: "hazard:read:summary", Secret: cfg.MediaSecret},
 		"field-team": {Scope: "hazard:read:raw", Secret: cfg.FieldTeamSecret},
 		"bnpb-ops":   {Scope: "hazard:read:raw", Secret: cfg.BnpbOpsSecret},
 	}
-	return &tokenHandler{clients: clients, cfg: cfg}
+	return &tokenHandler{clients: clients, cfg: cfg, redisClient: redisClient}
 }
 
 func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
@@ -48,6 +54,16 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 
 		// Issue token
 		// On success, build a JWT with jti, sid, sub, scope, iss, aud, iat, exp.
+		sid, err := uuid.NewV7()
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate session ID")
+		}
+
+		jti, err := uuid.NewV7()
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate token ID")
+		}
+
 		jwtClaims := jwt.MapClaims{
 			"sub":   req.ClientID,
 			"scope": client.Scope,
@@ -55,23 +71,34 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 			"iat":   time.Now().Unix(),
 			"iss":   h.cfg.JWTIssuer,
 			"aud":   h.cfg.JWTAudience,
-			// "sid":   "session-id",
-			// "jti":   "unique-token-id",
+			"sid":   sid.String(),
+			"jti":   jti.String(),
 		}
 
 		jwtToken, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwtClaims).SignedString([]byte(h.cfg.PrivateKey))
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate token")
 		}
-		// put refresh token here???
 
-		// Return access_token, token_type, expires_in, scope.
-		return c.JSON(fiber.Map{
-			"access_token": jwtToken,
-			"token_type":   "Bearer",
-			"expires_in":   h.cfg.AccessTokenTTL,
-			"scope":        client.Scope,
+		rawRefreshToken, hashedRefreshToken, err := NewToken(sid.String())
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate refresh token")
+		}
+
+		// Store hashedRefreshToken in Redis with sid as key and set expiration to RefreshTokenTTL
+		err = h.redisClient.Set(c.Context(), "rf:"+sid.String(), hashedRefreshToken, time.Duration(h.cfg.RefreshTokenTTL)*time.Second).Err()
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).SendString("Failed to store refresh token")
+		}
+
+		return c.Status(fiber.StatusOK).JSON(TokenResponse{
+			AccessToken:  jwtToken,
+			RefreshToken: sid.String() + "." + rawRefreshToken,
+			TokenType:    "Bearer",
+			ExpiresIn:    h.cfg.AccessTokenTTL,
+			Scope:        client.Scope,
 		})
+
 	case "refresh_token":
 		// later
 	default:

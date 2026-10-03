@@ -24,16 +24,12 @@ services:
       - path: ./cmd/client-api/.env
         required: false
 
-  auth-db:
-    image: postgres:17
+  auth-store:
+    image: redis:latest
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     ports:
-      - "5434:5432"
-    volumes:
-      - auth_db_data:/var/lib/postgresql/data
+      - "6379:6379"
     networks:
       - auth-store-net
 
@@ -166,7 +162,6 @@ services:
 
 volumes:
   aggregator_db_data:
-  auth_db_data:
   kafka_data:
 
 networks:

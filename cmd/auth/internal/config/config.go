@@ -17,12 +17,14 @@ type ServerConfig struct {
 }
 
 type RedisConfig struct {
-	Host string
-	Port string
+	Host     string
+	Port     string
+	Password string
 }
 
 type TokenConfig struct {
 	AccessTokenTTL  int // in seconds
+	RefreshTokenTTL int // in seconds
 	PrivateKey      string
 	MediaSecret     string
 	FieldTeamSecret string
@@ -51,12 +53,13 @@ func LoadConfig() (*Config, error) {
 	}
 
 	redisCfg := RedisConfig{
-		Host: shared.GetEnv("REDIS_HOST", "localhost"),
-		Port: shared.GetEnv("REDIS_PORT", "6379"),
+		Host:     shared.GetEnv("REDIS_HOST", "localhost"),
+		Port:     shared.GetEnv("REDIS_PORT", "6379"),
+		Password: shared.GetEnv("REDIS_PASSWORD", ""),
 	}
 
-	if redisCfg.Host == "" || redisCfg.Port == "" {
-		return nil, fmt.Errorf("redis host or port is not set")
+	if redisCfg.Host == "" || redisCfg.Port == "" || redisCfg.Password == "" {
+		return nil, fmt.Errorf("redis host|port|password is not set")
 	}
 
 	privateKey, err := loadPrivateKey(shared.GetEnv("PRIVATE_KEY_PATH", "./secrets/auth_priv.pem"))
@@ -66,7 +69,8 @@ func LoadConfig() (*Config, error) {
 
 	tokenCfg := TokenConfig{
 		PrivateKey:      privateKey,
-		AccessTokenTTL:  shared.GetEnvInt("ACCESS_TOKEN_TTL", 60), // seconds
+		AccessTokenTTL:  shared.GetEnvInt("ACCESS_TOKEN_TTL", 60),      // seconds
+		RefreshTokenTTL: shared.GetEnvInt("REFRESH_TOKEN_TTL", 604800), // seconds (7 days)
 		MediaSecret:     shared.GetEnv("MEDIA_SECRET", ""),
 		FieldTeamSecret: shared.GetEnv("LAPANGAN_SECRET", ""),
 		BnpbOpsSecret:   shared.GetEnv("BNPB_SECRET", ""),
