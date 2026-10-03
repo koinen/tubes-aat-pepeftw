@@ -18,7 +18,7 @@ components:
     HazardEvent:
       type: object
       description: Format kanonik. x-classification menentukan field mana yang boleh dilihat scope summary (RINGKASAN) atau hanya scope raw (MENTAH).
-      required: [hazard_id, source, source_ref_id, hazard_type, severity, area_name, latitude, longitude, occurred_at, ingested_at, attributes, version, updated_at]
+      required: [hazard_id, source, source_ref_id, hazard_type, severity, area_name, latitude, longitude, occurred_at, ingested_at, attributes]
       properties:
         hazard_id:
           type: string
@@ -62,15 +62,6 @@ components:
           additionalProperties: true
           description: Field sumber tanpa padanan kanonik, termasuk field baru seperti confidence_level.
           x-classification: MENTAH
-        version:
-          type: integer
-          minimum: 1
-          description: Naik setiap ada perubahan pada hazard.
-          x-classification: RINGKASAN
-        updated_at:
-          type: string
-          format: date-time
-          x-classification: RINGKASAN
     SourceStatusEntry:
       type: object
       required: [status, last_success_at, stale_since]
@@ -144,7 +135,7 @@ components:
       name: since
       in: query
       required: false
-      description: RFC 3339 UTC. Mengembalikan hazard dengan updated_at >= since.
+      description: RFC 3339 UTC. Mengembalikan hazard dengan ingested_at >= since.
       schema:
         type: string
         format: date-time

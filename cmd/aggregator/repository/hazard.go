@@ -12,18 +12,12 @@ type SaveOutcome string
 
 const (
 	OutcomeCreated   SaveOutcome = "CREATED"
-	OutcomeUpdated   SaveOutcome = "UPDATED"
 	OutcomeUnchanged SaveOutcome = "UNCHANGED"
 )
 
-type SaveResult struct {
-	Outcome SaveOutcome
-	Version int
-}
-
 // Hazard Write
 type HazardWriter interface {
-	SaveHazard(ctx context.Context, h model.HazardEvent) (SaveResult, error)
+	SaveHazard(ctx context.Context, h model.HazardEvent) (SaveOutcome, error)
 }
 
 const (
@@ -32,7 +26,7 @@ const (
 )
 
 // Hazard Read
-// HazardFilter selects hazards with UpdatedAt >= Since
+// HazardFilter selects hazards with IngestedAt >= Since
 type HazardFilter struct {
 	Type  *model.HazardType
 	Since *time.Time
