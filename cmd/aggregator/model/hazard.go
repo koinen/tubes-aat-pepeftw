@@ -38,6 +38,4 @@ type HazardEvent struct {
 	OccurredAt  time.Time      `json:"occurred_at"`
 	IngestedAt  time.Time      `json:"ingested_at"`
 	Attributes  map[string]any `json:"attributes"`
-	Version     int            `json:"version"`
-	UpdatedAt   time.Time      `json:"updated_at"`
 }

@@ -15,7 +15,7 @@ paths:
   /internal/hazards:
     get:
       operationId: listHazards
-      description: Diurutkan berdasarkan updated_at terbaru.
+      description: Diurutkan berdasarkan ingested_at terbaru.
       parameters:
         - $ref: './common.yaml#/components/parameters/CorrelationId'
         - $ref: './common.yaml#/components/parameters/HazardTypeQuery'
