@@ -114,13 +114,43 @@ services:
       dockerfile: ./cmd/pvmbg-mock/Dockerfile
     ports:
       - "8082:8080"
-  
+    environment:
+      PVMBG_TOKEN_SECRET: ${PVMBG_TOKEN_SECRET}
+      PVMBG_ADMIN_KEY: ${PVMBG_ADMIN_KEY}
+      PVMBG_DELAY_MIN: ${PVMBG_DELAY_MIN:-500ms}
+      PVMBG_DELAY_MAX: ${PVMBG_DELAY_MAX:-3000ms}
+      PVMBG_REPORT_INTERVAL: ${PVMBG_REPORT_INTERVAL:-5s}
+      PVMBG_SEED_COUNT: ${PVMBG_SEED_COUNT:-25}
+      PVMBG_SCHEMA_VERSION: ${PVMBG_SCHEMA_VERSION:-1}
+      PVMBG_HANG_MAX: ${PVMBG_HANG_MAX:-5m}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
   bmkg-mock:
     build:
       context: .
       dockerfile: ./cmd/bmkg-mock/Dockerfile
     ports:
       - "8081:8080"
+    environment:
+      BMKG_API_KEY: ${BMKG_API_KEY}
+      BMKG_DELAY_MIN: ${BMKG_DELAY_MIN:-50ms}
+      BMKG_DELAY_MAX: ${BMKG_DELAY_MAX:-150ms}
+      BMKG_EVENT_INTERVAL: ${BMKG_EVENT_INTERVAL:-5s}
+      BMKG_SEED_COUNT: ${BMKG_SEED_COUNT:-25}
+      BMKG_TSUNAMI_RATE: ${BMKG_TSUNAMI_RATE:-0.15}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
 
   kafka:
     image: apache/kafka:4.3.1
