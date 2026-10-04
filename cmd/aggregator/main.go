@@ -17,6 +17,7 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/httpapi"
 	"tubes-aat-pepeftw/cmd/aggregator/kafka"
 	"tubes-aat-pepeftw/cmd/aggregator/logging"
+	"tubes-aat-pepeftw/cmd/aggregator/poller"
 	"tubes-aat-pepeftw/cmd/aggregator/relay"
 	"tubes-aat-pepeftw/cmd/aggregator/repository/postgres"
 )
@@ -37,6 +38,11 @@ func main() {
 
 func run(log *slog.Logger) error {
 	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	pollerCfg, err := poller.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -78,6 +84,26 @@ func run(log *slog.Logger) error {
 		stop()
 		<-relayDone
 	}()
+
+	if pollerCfg.Enabled {
+		pollerDone := make(chan struct{})
+		go func() {
+			defer close(pollerDone)
+			poller.New(pollerCfg, poller.Deps{
+				Hazards:   repo,
+				Rejected:  repo,
+				Cursors:   repo,
+				Statuses:  repo,
+				Volcanoes: repo,
+				Log:       log,
+			}).Run(ctx)
+		}()
+		defer func() {
+			stop()
+			<-pollerDone
+		}()
+		log.Info("poller_started")
+	}
 
 	app := httpapi.New(httpapi.Deps{
 		Hazards:      repo,
