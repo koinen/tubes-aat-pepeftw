@@ -79,8 +79,13 @@ services:
     build:
       context: .
       dockerfile: ./cmd/dashboard-updater/Dockerfile
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_DASHBOARD}
     ports:
       - "8083:8080"
+    restart: unless-stopped
 
   notifier:
     build:
