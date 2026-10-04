@@ -97,6 +97,17 @@ services:
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_NOTIFIER}
     restart: unless-stopped
 
+  audit-log:
+    build:
+      context: .
+      dockerfile: ./cmd/audit-log/Dockerfile
+    profiles: ["extra"]
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_AUDIT}
+    restart: unless-stopped
+
   pvmbg-mock:
     build:
       context: .
