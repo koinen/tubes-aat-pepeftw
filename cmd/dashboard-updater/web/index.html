@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BNPB Hazard Dashboard</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #e3e7ee;
+    --normal: #2e9d5b; --waspada: #c9a10a; --siaga: #e07a1f; --awas: #d33a3a; --accent: #1f4f8f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { background: var(--accent); color: #fff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .2px; }
+  header small { opacity: .8; font-weight: 400; margin-left: 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.15); font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #f2c94c; }
+  .pill.live .dot { background: #4ade80; box-shadow: 0 0 0 3px rgba(74,222,128,.25); }
+  .pill.down .dot { background: #f87171; }
+  main { padding: 20px 24px 40px; max-width: 1280px; margin: 0 auto; }
+  .cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; border-top: 4px solid var(--muted); }
+  .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  .card .value { font-size: 26px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .card.NORMAL { border-top-color: var(--normal); } .card.WASPADA { border-top-color: var(--waspada); }
+  .card.SIAGA { border-top-color: var(--siaga); } .card.AWAS { border-top-color: var(--awas); }
+  .card.total { border-top-color: var(--accent); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { background: #fafbfd; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: var(--muted); }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .badge { display: inline-block; min-width: 76px; text-align: center; padding: 2px 10px; border-radius: 6px; color: #fff; font-weight: 600; font-size: 12px; letter-spacing: .4px; }
+  .badge.NORMAL { background: var(--normal); } .badge.WASPADA { background: var(--waspada); }
+  .badge.SIAGA { background: var(--siaga); } .badge.AWAS { background: var(--awas); }
+  @keyframes arrive { from { background: #fff4c2; } to { background: transparent; } }
+  tr.new td { animation: arrive 2.5s ease-out; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  @media (max-width: 760px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } main { padding: 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>BNPB Hazard Dashboard <small>live from Kafka · hazard-events</small></h1>
+  <span id="status" class="pill"><span class="dot"></span><span id="status-text">Connecting…</span></span>
+</header>
+<main>
+  <section class="cards">
+    <div class="card total"><div class="label">Total</div><div class="value" id="count-total">0</div></div>
+    <div class="card AWAS"><div class="label">Awas</div><div class="value" id="count-AWAS">0</div></div>
+    <div class="card SIAGA"><div class="label">Siaga</div><div class="value" id="count-SIAGA">0</div></div>
+    <div class="card WASPADA"><div class="label">Waspada</div><div class="value" id="count-WASPADA">0</div></div>
+    <div class="card NORMAL"><div class="label">Normal</div><div class="value" id="count-NORMAL">0</div></div>
+  </section>
+  <section class="panel">
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Severity</th><th>Type</th><th>Area</th><th>Source</th><th>Occurred</th><th>Received</th><th>Lag</th><th>Correlation</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div id="empty" class="empty">Waiting for hazards…</div>
+  </section>
+</main>
+<script>
+  const MAX_ROWS = 200;
+  const seen = new Set();
+  const counts = { AWAS: 0, SIAGA: 0, WASPADA: 0, NORMAL: 0 };
+  const rows = document.getElementById("rows");
+  const empty = document.getElementById("empty");
+  const status = document.getElementById("status");
+  const statusText = document.getElementById("status-text");
+
+  const time = iso => iso ? new Date(iso).toLocaleString("en-GB", { hour12: false }) : "-";
+  const lag = ms => ms < 1000 ? ms + " ms" : ms < 60000 ? (ms / 1000).toFixed(1) + " s" : Math.round(ms / 60000) + " min";
+
+  function cell(text, className) {
+    const td = document.createElement("td");
+    if (className) td.className = className;
+    td.textContent = text;
+    return td;
+  }
+
+  function render(h) {
+    if (seen.has(h.hazard_id)) return;
+    seen.add(h.hazard_id);
+
+    const tr = document.createElement("tr");
+    tr.className = "new";
+    const sev = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = "badge " + h.severity;
+    badge.textContent = h.severity;
+    sev.appendChild(badge);
+    tr.append(sev, cell(h.hazard_type), cell(h.area_name), cell(h.source), cell(time(h.occurred_at)),
+      cell(time(h.received_at)), cell(lag(h.delivery_lag_ms), "num"), cell(h.correlation_id ? h.correlation_id.slice(0, 8) : "-", "mono"));
+    rows.prepend(tr);
+    while (rows.children.length > MAX_ROWS) rows.lastElementChild.remove();
+
+    if (h.severity in counts) counts[h.severity]++;
+    document.getElementById("count-total").textContent = seen.size;
+    for (const s in counts) document.getElementById("count-" + s).textContent = counts[s];
+    empty.hidden = true;
+  }
+
+  function setStatus(state, text) {
+    status.className = "pill " + state;
+    statusText.textContent = text;
+  }
+
+  const events = new EventSource("/events");
+  events.addEventListener("hazard", e => render(JSON.parse(e.data)));
+  events.onopen = () => setStatus("live", "Live");
+  events.onerror = () => setStatus("down", "Reconnecting…");
+</script>
+</body>
+</html>
+
+<!-- AI yang ini -->
