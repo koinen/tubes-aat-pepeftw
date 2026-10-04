@@ -1,18 +1,63 @@
 package main
 
 import (
-	"log"
+	"context"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 )
 
+const shutdownTimeout = 5 * time.Second
+
 func main() {
-	app := fiber.New()
+	log := newLogger("notifier")
+	if err := run(log); err != nil {
+		log.Error("notifier_stopped", "error", err.Error())
+		os.Exit(1)
+	}
+}
 
-	app.Get("/", func(c fiber.Ctx) {
-		c.Send([]byte("Hello, World!"))
-	})
+func run(log *slog.Logger) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
 
-	log.Printf("Starting Aggregator Service...")
-	app.Listen(":8080")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	client, err := newConsumerClient(cfg)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	app := newHealthApp(client.Ping)
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := app.Listen(":"+cfg.port, fiber.ListenConfig{DisableStartupMessage: true}); err != nil {
+			serverErr <- err
+			stop()
+		}
+	}()
+
+	log.Info("notifier_started", "topic", cfg.topic, "group", cfg.groupID, "port", cfg.port)
+	consume(ctx, client, newNotifier(log), log)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := app.ShutdownWithContext(shutdownCtx); err != nil {
+		log.Error("shutdown_failed", "error", err.Error())
+	}
+
+	select {
+	case err := <-serverErr:
+		return err
+	default:
+		return nil
+	}
 }

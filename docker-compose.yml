@@ -81,7 +81,17 @@ services:
       dockerfile: ./cmd/dashboard-updater/Dockerfile
     ports:
       - "8083:8080"
-  
+
+  notifier:
+    build:
+      context: .
+      dockerfile: ./cmd/notifier/Dockerfile
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_NOTIFIER}
+    restart: unless-stopped
+
   pvmbg-mock:
     build:
       context: .
