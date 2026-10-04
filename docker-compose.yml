@@ -10,6 +10,11 @@ services:
     volumes:
       - aggregator_db_data:/var/lib/postgresql/data
       - ./cmd/aggregator/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
     networks:
       - store-net
 
@@ -52,10 +57,19 @@ services:
     environment:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       SEED_FIXTURES: ${SEED_FIXTURES:-true}
+      DB_HOST: aggregator-db
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
     ports:
       - "8085:8080"
     depends_on:
-      - aggregator-db
+      aggregator-db:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - default
       - store-net
