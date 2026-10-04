@@ -9,19 +9,29 @@ import (
 
 const healthTimeout = 2 * time.Second
 
-func health(ping func(context.Context) error) fiber.Handler {
+type pingFunc func(context.Context) error
+
+func health(postgres, kafka pingFunc) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		ctx, cancel := context.WithTimeout(c.Context(), healthTimeout)
-		defer cancel()
+		postgresStatus, kafkaStatus := checkStatus(c.Context(), postgres), checkStatus(c.Context(), kafka)
 
 		status, httpStatus := "ok", fiber.StatusOK
-		if err := ping(ctx); err != nil {
+		if postgresStatus != "ok" {
 			status, httpStatus = "unavailable", fiber.StatusServiceUnavailable
 		}
 		return c.Status(httpStatus).JSON(fiber.Map{
 			"status":  status,
 			"service": "aggregator",
-			"checks":  fiber.Map{"postgres": status},
+			"checks":  fiber.Map{"postgres": postgresStatus, "kafka": kafkaStatus},
 		})
 	}
+}
+
+func checkStatus(parent context.Context, ping pingFunc) string {
+	ctx, cancel := context.WithTimeout(parent, healthTimeout)
+	defer cancel()
+	if err := ping(ctx); err != nil {
+		return "unavailable"
+	}
+	return "ok"
 }

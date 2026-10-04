@@ -62,6 +62,8 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
     ports:
       - "8085:8080"
     depends_on:

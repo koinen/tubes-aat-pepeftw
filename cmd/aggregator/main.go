@@ -15,13 +15,16 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/config"
 	"tubes-aat-pepeftw/cmd/aggregator/fixture"
 	"tubes-aat-pepeftw/cmd/aggregator/httpapi"
+	"tubes-aat-pepeftw/cmd/aggregator/kafka"
 	"tubes-aat-pepeftw/cmd/aggregator/logging"
+	"tubes-aat-pepeftw/cmd/aggregator/relay"
 	"tubes-aat-pepeftw/cmd/aggregator/repository/postgres"
 )
 
 const (
-	dbWaitTimeout = 30 * time.Second
-	dbPingTimeout = 2 * time.Second
+	dbWaitTimeout  = 30 * time.Second
+	dbPingTimeout  = 2 * time.Second
+	relayBatchSize = 100
 )
 
 func main() {
@@ -60,12 +63,29 @@ func run(log *slog.Logger) error {
 		log.Info("fixtures_seeded")
 	}
 
+	producer, err := kafka.NewProducer(cfg.KafkaBrokers, cfg.HazardTopic)
+	if err != nil {
+		return err
+	}
+	defer producer.Close()
+
+	relayDone := make(chan struct{})
+	go func() {
+		defer close(relayDone)
+		relay.New(repo, producer, log, cfg.RelayInterval, relayBatchSize).Run(ctx)
+	}()
+	defer func() {
+		stop()
+		<-relayDone
+	}()
+
 	app := httpapi.New(httpapi.Deps{
-		Hazards:     repo,
-		Statuses:    repo,
-		Ping:        pool.Ping,
-		InternalKey: cfg.InternalAPIKey,
-		Log:         log,
+		Hazards:      repo,
+		Statuses:     repo,
+		PostgresPing: pool.Ping,
+		KafkaPing:    producer.Ping,
+		InternalKey:  cfg.InternalAPIKey,
+		Log:          log,
 	})
 
 	go func() {

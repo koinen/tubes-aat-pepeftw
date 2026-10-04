@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 )
 
 type Config struct {
@@ -14,6 +16,9 @@ type Config struct {
 	InternalAPIKey string
 	SeedFixtures   bool
 	DatabaseURL    string
+	KafkaBrokers   []string
+	HazardTopic    string
+	RelayInterval  time.Duration
 }
 
 func Load() (Config, error) {
@@ -27,18 +32,39 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	interval, err := time.ParseDuration(getenv("RELAY_INTERVAL", "1s"))
+	if err != nil || interval <= 0 {
+		return Config{}, errors.New("RELAY_INTERVAL must be a positive duration such as 1s or 500ms")
+	}
+
 	cfg := Config{
 		Port:           getenv("PORT", "8080"),
 		InternalAPIKey: os.Getenv("INTERNAL_API_KEY"),
 		SeedFixtures:   seed,
 		DatabaseURL:    dbURL,
+		KafkaBrokers:   splitList(os.Getenv("KAFKA_BROKERS")),
+		HazardTopic:    getenv("KAFKA_TOPIC_HAZARD_EVENTS", "hazard-events"),
+		RelayInterval:  interval,
 	}
 
 	if cfg.InternalAPIKey == "" {
 		return Config{}, errors.New("INTERNAL_API_KEY is required")
 	}
+	if len(cfg.KafkaBrokers) == 0 {
+		return Config{}, errors.New("KAFKA_BROKERS is required")
+	}
 
 	return cfg, nil
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func databaseURL() (string, error) {
