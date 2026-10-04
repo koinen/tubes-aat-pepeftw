@@ -125,7 +125,7 @@ services:
       PVMBG_HANG_MAX: ${PVMBG_HANG_MAX:-5m}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -146,7 +146,7 @@ services:
       BMKG_TSUNAMI_RATE: ${BMKG_TSUNAMI_RATE:-0.15}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 3
