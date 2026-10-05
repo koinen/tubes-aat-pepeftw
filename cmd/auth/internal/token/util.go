@@ -7,16 +7,16 @@ import (
 	"encoding/base64"
 )
 
-// New returns the raw token (send to client once) and its hash (store in DB).
-func NewToken(sid string) (raw string, hash []byte, err error) {
+// NewToken returns the raw secret (send to client once) and its SHA-256 hash (store in DB).
+// The caller is responsible for composing the full refresh token as sid + "." + raw.
+func NewToken() (raw string, hash []byte, err error) {
 	b := make([]byte, 32) // 256 bits
 	if _, err = rand.Read(b); err != nil {
 		return "", nil, err
 	}
-	secret := base64.RawURLEncoding.EncodeToString(b)
-	raw = sid + "." + secret // sid prefix for lookup
+	raw = base64.RawURLEncoding.EncodeToString(b)
 
-	sum := sha256.Sum256([]byte(secret))
+	sum := sha256.Sum256([]byte(raw))
 	return raw, sum[:], nil
 }
 
@@ -24,4 +24,9 @@ func NewToken(sid string) (raw string, hash []byte, err error) {
 func MatchesToken(secret string, stored []byte) bool {
 	sum := sha256.Sum256([]byte(secret))
 	return subtle.ConstantTimeCompare(sum[:], stored) == 1
+}
+
+func HashSecret(secret string) []byte {
+	sum := sha256.Sum256([]byte(secret))
+	return sum[:]
 }

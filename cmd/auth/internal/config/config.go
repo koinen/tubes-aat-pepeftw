@@ -10,6 +10,7 @@ type Config struct {
 	Server ServerConfig
 	Redis  RedisConfig
 	Token  TokenConfig
+	Kafka  KafkaConfig
 }
 
 type ServerConfig struct {
@@ -31,14 +32,20 @@ type TokenConfig struct {
 	BnpbOpsSecret   string
 	JWTIssuer       string
 	JWTAudience     string
+	PublicKey       string
 }
 
-func loadPrivateKey(path string) (string, error) {
-	privateKey, err := os.ReadFile(path)
+type KafkaConfig struct {
+	Brokers string
+	Topic   string
+}
+
+func loadKey(path string) (string, error) {
+	key, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to read private key from %s: %v", path, err)
+		return "", fmt.Errorf("failed to read key from %s: %v", path, err)
 	}
-	return string(privateKey), nil
+	return string(key), nil
 }
 
 func LoadConfig() (*Config, error) {
@@ -62,13 +69,19 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("redis host|port|password is not set")
 	}
 
-	privateKey, err := loadPrivateKey(shared.GetEnv("PRIVATE_KEY_PATH", "./secrets/auth_priv.pem"))
+	privateKey, err := loadKey(shared.GetEnv("PRIVATE_KEY_PATH", "./secrets/auth_priv.pem"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load private key: %v", err)
 	}
 
+	publicKey, err := loadKey(shared.GetEnv("PUBLIC_KEY_PATH", "./secrets/auth_pub.pem"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load public key: %v", err)
+	}
+
 	tokenCfg := TokenConfig{
 		PrivateKey:      privateKey,
+		PublicKey:       publicKey,
 		AccessTokenTTL:  shared.GetEnvInt("ACCESS_TOKEN_TTL", 60),      // seconds
 		RefreshTokenTTL: shared.GetEnvInt("REFRESH_TOKEN_TTL", 604800), // seconds (7 days)
 		MediaSecret:     shared.GetEnv("MEDIA_SECRET", ""),
@@ -78,13 +91,19 @@ func LoadConfig() (*Config, error) {
 		JWTAudience:     shared.GetEnv("JWT_AUDIENCE", "bnpb-ops"),
 	}
 
-	if tokenCfg.PrivateKey == "" {
+	if tokenCfg.PrivateKey == "" || tokenCfg.PublicKey == "" {
 		return nil, fmt.Errorf("JWT private key is not set")
+	}
+
+	kafkaCfg := KafkaConfig{
+		Brokers: shared.GetEnv("KAFKA_BROKERS", "localhost:9092"),
+		Topic:   shared.GetEnv("KAFKA_TOPIC", "auth-revocations"),
 	}
 
 	return &Config{
 		Server: serverCfg,
 		Redis:  redisCfg,
 		Token:  tokenCfg,
+		Kafka:  kafkaCfg,
 	}, nil
 }
