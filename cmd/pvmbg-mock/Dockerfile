@@ -6,7 +6,8 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . .
+COPY internal/ internal/
+COPY cmd/pvmbg-mock/ cmd/pvmbg-mock/
 RUN CGO_ENABLED=0 GOOS=linux go build -o ./bin/pvmbg-mock ./cmd/pvmbg-mock
 
 # Stage 2: Create a minimal image for the application

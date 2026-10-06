@@ -32,8 +32,6 @@ services:
 
   auth-store:
     image: redis:latest
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
     ports:
       - "6379:6379"
     networks:
@@ -51,7 +49,7 @@ services:
       - path: ./cmd/auth/.env
         required: false
     depends_on:
-      - auth-db
+      - auth-store
     networks:
       - default
       - auth-store-net

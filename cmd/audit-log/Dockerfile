@@ -6,7 +6,8 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . .
+COPY internal/ internal/
+COPY cmd/audit-log/ cmd/audit-log/
 RUN CGO_ENABLED=0 GOOS=linux go build -o ./bin/audit-log ./cmd/audit-log
 
 # Stage 2: Create a minimal image for the application
