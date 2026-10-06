@@ -18,6 +18,14 @@ services:
     networks:
       - store-net
 
+  client-api-store:
+    image: redis:latest
+    ports:
+      - "6380:6379"
+    networks:
+      - default
+      - client-api-store-net
+
   client-api:
     build:
       context: .
@@ -29,6 +37,13 @@ services:
         required: false
       - path: ./cmd/client-api/.env
         required: false
+    depends_on:
+      - client-api-store
+      - kafka
+    restart: unless-stopped
+    networks:
+      - default
+      - client-api-store-net
 
   auth-store:
     image: redis:latest
@@ -50,6 +65,8 @@ services:
         required: false
     depends_on:
       - auth-store
+      - kafka
+    restart: unless-stopped
     networks:
       - default
       - auth-store-net
@@ -225,7 +242,7 @@ services:
 volumes:
   aggregator_db_data:
   kafka_data:
-
 networks:
   store-net:
   auth-store-net:
+  client-api-store-net:
