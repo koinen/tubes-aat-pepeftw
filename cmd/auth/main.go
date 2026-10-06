@@ -7,6 +7,7 @@ import (
 	"tubes-aat-pepeftw/cmd/auth/internal/health"
 	"tubes-aat-pepeftw/cmd/auth/internal/kafka"
 	"tubes-aat-pepeftw/cmd/auth/internal/redis"
+	"tubes-aat-pepeftw/cmd/auth/internal/token"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -35,6 +36,11 @@ func main() {
 
 	// handlers
 	healthHandler := health.NewHealthHandler()
+	tokenHandler := token.NewTokenHandler(config.Token, redisClient, kafkaClient)
+
+	// routes
+	app.Post("/token", tokenHandler.IssueToken)
+	app.Get("/.well-known/jwks.json", tokenHandler.JWKS)
 
 	app.Get("/health", healthHandler.HealthCheck)
 
