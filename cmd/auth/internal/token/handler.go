@@ -243,6 +243,7 @@ func (h *tokenHandler) JWKS(c fiber.Ctx) error {
 				"alg": "EdDSA",
 				"use": "sig",
 				"x":   h.cfg.PublicKey,
+				"kid": h.keyId,
 			},
 		},
 	})
