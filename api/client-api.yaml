@@ -15,7 +15,7 @@ paths:
   /hazards:
     get:
       operationId: listHazards
-      description: Diurutkan berdasarkan updated_at terbaru. sources selalu disertakan agar klien melihat kebaruan data.
+      description: Diurutkan berdasarkan ingested_at terbaru. sources selalu disertakan agar klien melihat kebaruan data.
       parameters:
         - $ref: './common.yaml#/components/parameters/CorrelationId'
         - $ref: './common.yaml#/components/parameters/HazardTypeQuery'
@@ -139,7 +139,7 @@ components:
         type: array
         items:
           type: string
-          enum: [hazard_id, source, source_ref_id, hazard_type, severity, area_name, latitude, longitude, occurred_at, ingested_at, attributes, version, updated_at]
+          enum: [hazard_id, source, source_ref_id, hazard_type, severity, area_name, latitude, longitude, occurred_at, ingested_at, attributes]
   schemas:
     HazardView:
       type: object
@@ -160,11 +160,6 @@ components:
           type: string
           format: date-time
         ingested_at:
-          type: string
-          format: date-time
-        version:
-          type: integer
-        updated_at:
           type: string
           format: date-time
         source_ref_id:

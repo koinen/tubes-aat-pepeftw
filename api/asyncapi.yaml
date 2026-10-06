@@ -3,7 +3,7 @@ info:
   title: BNPB Kafka Events
   version: 0.1.0
   description: |
-    Pengiriman at-least-once. Consumer wajib idempoten: abaikan pesan bila version <= version terakhir yang sudah diproses untuk hazard_id tersebut.
+    Pengiriman at-least-once. Consumer wajib idempoten: abaikan pesan bila hazard_id tersebut sudah pernah diproses, karena setiap hazard hanya dipublikasikan sekali.
     Setiap consumer memakai group id sendiri, membaca dari offset earliest, dan commit offset setelah pesan selesai diproses.
 defaultContentType: application/json
 servers:
@@ -18,7 +18,7 @@ servers:
 channels:
   hazardEvents:
     address: hazard-events
-    description: Setiap HazardEvent baru atau berubah. Dipublikasikan oleh outbox relay di Aggregator.
+    description: Setiap HazardEvent baru. Data sumber append-only, sehingga hazard tidak pernah diperbarui. Dipublikasikan oleh outbox relay di Aggregator.
     messages:
       HazardMessage:
         $ref: '#/components/messages/HazardMessage'
@@ -81,20 +81,17 @@ components:
         $ref: '#/components/schemas/KafkaHeaders'
       payload:
         type: object
-        required: [event_id, event_type, hazard_id, version, emitted_at, payload]
+        required: [event_id, event_type, hazard_id, emitted_at, payload]
         properties:
           event_id:
             type: string
             format: uuid
           event_type:
             type: string
-            enum: [HAZARD_CREATED, HAZARD_UPDATED]
+            enum: [HAZARD_CREATED]
           hazard_id:
             type: string
             format: uuid
-          version:
-            type: integer
-            minimum: 1
           emitted_at:
             type: string
             format: date-time
