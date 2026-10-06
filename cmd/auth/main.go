@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
+	"os"
+
+	"tubes-aat-pepeftw/cmd/auth/internal/common"
 	"tubes-aat-pepeftw/cmd/auth/internal/config"
 	"tubes-aat-pepeftw/cmd/auth/internal/health"
 	"tubes-aat-pepeftw/cmd/auth/internal/kafka"
@@ -10,6 +14,7 @@ import (
 	"tubes-aat-pepeftw/cmd/auth/internal/token"
 
 	"github.com/gofiber/fiber/v3"
+	recoverer "github.com/gofiber/fiber/v3/middleware/recover"
 )
 
 func main() {
@@ -18,9 +23,13 @@ func main() {
 		log.Fatal("Failed to load config:", err)
 	}
 
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	onError := common.ErrorHandler(logger)
+
 	ctx := context.Background()
 
-	app := fiber.New()
+	app := fiber.New(fiber.Config{ErrorHandler: onError})
+	app.Use(common.CorrelationID, common.RequestLogger(logger, onError), recoverer.New())
 
 	redisClient, err := redis.Connect(ctx, config.Redis)
 	if err != nil {
@@ -44,5 +53,8 @@ func main() {
 
 	app.Get("/health", healthHandler.HealthCheck)
 
-	app.Listen(":" + config.Server.Port)
+	logger.Info("Starting Auth service", "port", config.Server.Port)
+	if err := app.Listen(":" + config.Server.Port); err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }

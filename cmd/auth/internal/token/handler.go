@@ -3,6 +3,7 @@ package token
 import (
 	"strings"
 	"time"
+	"tubes-aat-pepeftw/cmd/auth/internal/common"
 	"tubes-aat-pepeftw/cmd/auth/internal/config"
 
 	"github.com/gofiber/fiber/v3"
@@ -43,36 +44,36 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 
 	err := c.Bind().Body(req)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).SendString("Invalid request body")
+		return common.WriteError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
 	}
 
 	switch req.GrantType {
 	case "client_credentials":
 		if req.RefreshToken != "" {
-			return c.Status(fiber.StatusBadRequest).SendString("Refresh token should not be provided for client_credentials grant type")
+			return common.WriteError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", "Refresh token should not be provided for client_credentials grant type")
 		}
 		if req.ClientID == "" || req.ClientSecret == "" {
-			return c.Status(fiber.StatusBadRequest).SendString("Client ID and secret must be provided for client_credentials grant type")
+			return common.WriteError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", "Client ID and secret must be provided for client_credentials grant type")
 		}
 		// check id + secret, issue token
 		client, exists := h.clients[req.ClientID]
 		if !exists {
-			return c.Status(fiber.StatusUnauthorized).SendString("Invalid client")
+			return common.WriteError(c, fiber.StatusUnauthorized, "UNAUTHORIZED", "Invalid client")
 		}
 		if client.Secret != req.ClientSecret {
-			return c.Status(fiber.StatusUnauthorized).SendString("Invalid secret")
+			return common.WriteError(c, fiber.StatusUnauthorized, "UNAUTHORIZED", "Invalid secret")
 		}
 
 		// Issue token
 		// On success, build a JWT with jti, sid, sub, scope, iss, aud, iat, exp.
 		sid, err := uuid.NewV7()
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate session ID")
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to generate session ID")
 		}
 
 		jti, err := uuid.NewV7()
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate token ID")
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to generate token ID")
 		}
 
 		jwtClaims := jwt.MapClaims{
@@ -88,19 +89,19 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 
 		jwtToken := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwtClaims)
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate token")
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to create JWT token")
 		}
 
 		jwtToken.Header["kid"] = h.keyId
 
 		signedToken, err := jwtToken.SignedString([]byte(h.cfg.PrivateKey))
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to sign token")
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to sign token")
 		}
 
 		rawRefreshToken, hashedRefreshToken, err := NewToken()
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate refresh token")
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to generate refresh token")
 		}
 
 		// Store session as a Redis hash: rt:{sid} → {hash, jti, sub, scope}
@@ -111,7 +112,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 			"scope", client.Scope,
 		).Err()
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to store refresh token")
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to store refresh token in Redis")
 		}
 		// Set expiration on the hash key
 		h.redisClient.Expire(c.Context(), "rt:"+sid.String(), time.Duration(h.cfg.RefreshTokenTTL)*time.Second)
@@ -126,25 +127,25 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 
 	case "refresh_token":
 		if req.ClientID != "" || req.ClientSecret != "" {
-			return c.Status(fiber.StatusBadRequest).SendString("Client ID and secret should not be provided for refresh_token grant type")
+			return common.WriteError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", "Client ID and secret should not be provided for refresh_token grant type")
 		}
 		if req.RefreshToken == "" {
-			return c.Status(fiber.StatusBadRequest).SendString("Refresh token must be provided for refresh_token grant type")
+			return common.WriteError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", "Refresh token must be provided for refresh_token grant type")
 		}
 
 		sid, secret, ok := parseRefreshToken(req.RefreshToken) // split on ".", validate sid is a UUID
 		if !ok {
-			return c.Status(fiber.StatusBadRequest).SendString("Invalid refresh token format")
+			return common.WriteError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", "Invalid refresh token format")
 		}
 
 		newRawRefreshToken, newHashedRefreshToken, err := NewToken()
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate new refresh token")
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to generate new refresh token")
 		}
 
 		jti, err := uuid.NewV7()
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to generate new token ID")
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to generate new token ID")
 		}
 
 		vals, err := rotate.Run(
@@ -153,7 +154,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 			HashSecret(secret), newHashedRefreshToken, jti.String(),
 		).Slice()
 		if err != nil || len(vals) != 4 {
-			return c.SendStatus(fiber.StatusInternalServerError) // Redis problem, not the client's fault
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to rotate refresh token") // Redis problem, not the client's fault
 		}
 
 		status, ok1 := vals[0].(int64)
@@ -161,10 +162,12 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 		sub, ok3 := vals[2].(string)
 		scope, ok4 := vals[3].(string)
 		if !ok1 || !ok2 || !ok3 || !ok4 {
-			return c.SendStatus(fiber.StatusInternalServerError)
+			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Something went wrong.")
 		}
 
 		switch status {
+		default: // unknown, expired, or already revoked
+			return common.WriteError(c, fiber.StatusUnauthorized, "UNAUTHORIZED", "Refresh token is invalid, expired, or already revoked.")
 		case 1: // rotated
 			// Publish old jti to auth-revocations so downstream services revoke it
 			record := &kgo.Record{
@@ -172,7 +175,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 				Value: []byte(oldJti),
 			}
 			if err := h.kafkaClient.ProduceSync(c.Context(), record).FirstErr(); err != nil {
-				return c.Status(fiber.StatusInternalServerError).SendString("Failed to publish revocation to Kafka")
+				return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to publish revocation message")
 			}
 
 			// Sign new access token with same sid, new jti, and original sub/scope from Redis
@@ -192,7 +195,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 
 			signedToken, err := jwtToken.SignedString([]byte(h.cfg.PrivateKey))
 			if err != nil {
-				return c.Status(fiber.StatusInternalServerError).SendString("Failed to sign token")
+				return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to sign new access token")
 			}
 
 			return c.Status(fiber.StatusOK).JSON(TokenResponse{
@@ -211,18 +214,13 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 				Value: []byte(oldJti),
 			}
 			_ = h.kafkaClient.ProduceSync(c.Context(), record).FirstErr() // best-effort
-			return c.Status(fiber.StatusUnauthorized).SendString("Refresh token reuse detected. All tokens for this session have been revoked.")
-
-		case 0: // unknown, expired, or already revoked
-			return c.Status(fiber.StatusUnauthorized).SendString("Refresh token is invalid, expired, or already revoked.")
+			return common.WriteError(c, fiber.StatusUnauthorized, "UNAUTHORIZED", "Token reuse detected. Please try logging in again.")
 		}
 
 	default:
 		// 400
-		return c.Status(fiber.StatusBadRequest).SendString("Invalid grant type")
+		return common.WriteError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", "Unsupported grant type")
 	}
-
-	return c.SendString("Token issued successfully")
 }
 
 func (h *tokenHandler) JWKS(c fiber.Ctx) error {
