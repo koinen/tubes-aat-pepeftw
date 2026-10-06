@@ -24,17 +24,18 @@ services:
       dockerfile: ./cmd/client-api/Dockerfile
     ports:
       - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/client-api/.env
+        required: false
 
-  auth-db:
-    image: postgres:17
+  auth-store:
+    image: redis:latest
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     ports:
-      - "5434:5432"
-    volumes:
-      - auth_db_data:/var/lib/postgresql/data
+      - "6379:6379"
     networks:
       - auth-store-net
 
@@ -44,11 +45,19 @@ services:
       dockerfile: ./cmd/auth/Dockerfile
     ports:
       - "8084:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/auth/.env
+        required: false
     depends_on:
       - auth-db
     networks:
       - default
       - auth-store-net
+    volumes:
+      - ./secrets/auth_priv.pem:/app/secrets/auth_priv.pem:ro
+      - ./secrets/auth_pub.pem:/app/secrets/auth_pub.pem:ro
   
   aggregator:
     build:
@@ -78,6 +87,11 @@ services:
       TSUNAMI_GRACE: ${TSUNAMI_GRACE:-30s}
     ports:
       - "8085:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/aggregator/.env
+        required: false
     depends_on:
       aggregator-db:
         condition: service_healthy
@@ -85,7 +99,6 @@ services:
     networks:
       - default
       - store-net
-
 
   dashboard-updater:
     build:
@@ -97,6 +110,11 @@ services:
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_DASHBOARD}
     ports:
       - "8083:8080"
+    env_file:
+      - path: .env
+        required: false
+      - path: ./cmd/dashboard-updater/.env
+        required: false
     restart: unless-stopped
 
   notifier:
@@ -208,7 +226,6 @@ services:
 
 volumes:
   aggregator_db_data:
-  auth_db_data:
   kafka_data:
 
 networks:
