@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"tubes-aat-pepeftw/cmd/aggregator/config"
-	"tubes-aat-pepeftw/cmd/aggregator/fixture"
 	"tubes-aat-pepeftw/cmd/aggregator/httpapi"
 	"tubes-aat-pepeftw/cmd/aggregator/kafka"
 	"tubes-aat-pepeftw/cmd/aggregator/logging"
@@ -62,12 +61,6 @@ func run(log *slog.Logger) error {
 	log.Info("database_connected")
 
 	repo := postgres.New(pool)
-	if cfg.SeedFixtures {
-		if err := fixture.Run(ctx, repo, repo, time.Now().UTC().Truncate(time.Second)); err != nil {
-			return err
-		}
-		log.Info("fixtures_seeded")
-	}
 
 	producer, err := kafka.NewProducer(cfg.KafkaBrokers, cfg.HazardTopic)
 	if err != nil {

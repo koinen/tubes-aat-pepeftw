@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -14,7 +13,6 @@ import (
 type Config struct {
 	Port           string
 	InternalAPIKey string
-	SeedFixtures   bool
 	DatabaseURL    string
 	KafkaBrokers   []string
 	HazardTopic    string
@@ -22,11 +20,6 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	seed, err := strconv.ParseBool(getenv("SEED_FIXTURES", "true"))
-	if err != nil {
-		return Config{}, errors.New("SEED_FIXTURES must be true or false")
-	}
-
 	dbURL, err := databaseURL()
 	if err != nil {
 		return Config{}, err
@@ -40,7 +33,6 @@ func Load() (Config, error) {
 	cfg := Config{
 		Port:           getenv("PORT", "8080"),
 		InternalAPIKey: os.Getenv("INTERNAL_API_KEY"),
-		SeedFixtures:   seed,
 		DatabaseURL:    dbURL,
 		KafkaBrokers:   splitList(os.Getenv("KAFKA_BROKERS")),
 		HazardTopic:    getenv("KAFKA_TOPIC_HAZARD_EVENTS", "hazard-events"),
