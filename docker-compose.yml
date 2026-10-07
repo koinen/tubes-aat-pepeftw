@@ -146,6 +146,9 @@ services:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_NOTIFIER}
+      DEDUP_DIR: /data
+    volumes:
+      - notifier_data:/data
     restart: unless-stopped
 
   audit-log:
@@ -157,6 +160,9 @@ services:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_AUDIT}
+      DEDUP_DIR: /data
+    volumes:
+      - audit_log_data:/data
     restart: unless-stopped
 
   k6:
@@ -257,6 +263,8 @@ services:
 volumes:
   aggregator_db_data:
   kafka_data:
+  notifier_data:
+  audit_log_data:
 networks:
   store-net:
   auth-store-net:

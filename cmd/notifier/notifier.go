@@ -16,13 +16,13 @@ const (
 )
 
 type notifier struct {
-	seen map[string]struct{}
+	seen *seenStore
 	log  *slog.Logger
 	now  func() time.Time
 }
 
-func newNotifier(log *slog.Logger) *notifier {
-	return &notifier{seen: map[string]struct{}{}, log: log, now: time.Now}
+func newNotifier(seen *seenStore, log *slog.Logger) *notifier {
+	return &notifier{seen: seen, log: log, now: time.Now}
 }
 
 func (n *notifier) handle(value []byte, correlationID string) outcome {
@@ -40,26 +40,30 @@ func (n *notifier) handle(value []byte, correlationID string) outcome {
 		"correlation_id", correlationID, "hazard_id", msg.HazardID,
 		"event_id", msg.EventID, "severity", msg.Payload.Severity,
 	}
-	if _, seen := n.seen[msg.HazardID]; seen {
+	if n.seen.Has(msg.HazardID) {
 		n.log.Info("duplicate_skipped", attrs...)
 		return outcomeDuplicate
 	}
-	n.seen[msg.HazardID] = struct{}{}
 
-	if !isAlert(msg.Payload.Severity) {
+	result := outcomeIgnored
+	if isAlert(msg.Payload.Severity) {
+		n.log.Info("notification_sent", append(attrs,
+			"hazard_type", msg.Payload.HazardType,
+			"area_name", msg.Payload.AreaName,
+			"source", msg.Payload.Source,
+			"occurred_at", msg.Payload.OccurredAt.UTC().Format(time.RFC3339),
+			"channel", "field-team",
+			"delivery_lag_ms", n.now().Sub(msg.EmittedAt).Milliseconds(),
+		)...)
+		result = outcomeSent
+	} else {
 		n.log.Info("hazard_ignored", attrs...)
-		return outcomeIgnored
 	}
 
-	n.log.Info("notification_sent", append(attrs,
-		"hazard_type", msg.Payload.HazardType,
-		"area_name", msg.Payload.AreaName,
-		"source", msg.Payload.Source,
-		"occurred_at", msg.Payload.OccurredAt.UTC().Format(time.RFC3339),
-		"channel", "field-team",
-		"delivery_lag_ms", n.now().Sub(msg.EmittedAt).Milliseconds(),
-	)...)
-	return outcomeSent
+	if err := n.seen.Add(msg.HazardID); err != nil {
+		n.log.Error("dedup_persist_failed", append(attrs, "error", err.Error())...)
+	}
+	return result
 }
 
 func isAlert(severity string) bool {
