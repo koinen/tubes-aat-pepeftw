@@ -27,6 +27,13 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	seen, err := openSeenStore(cfg.dedupFile)
+	if err != nil {
+		return err
+	}
+	defer seen.Close()
+	log.Info("dedup_store_loaded", "path", cfg.dedupFile, "hazards", seen.Len())
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -46,7 +53,7 @@ func run(log *slog.Logger) error {
 	}()
 
 	log.Info("audit_log_started", "topic", cfg.topic, "group", cfg.groupID, "port", cfg.port)
-	consume(ctx, client, newAuditor(log), log)
+	consume(ctx, client, newAuditor(seen, log), log)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()

@@ -15,12 +15,12 @@ const (
 )
 
 type auditor struct {
-	seen map[string]struct{}
+	seen *seenStore
 	log  *slog.Logger
 }
 
-func newAuditor(log *slog.Logger) *auditor {
-	return &auditor{seen: map[string]struct{}{}, log: log}
+func newAuditor(seen *seenStore, log *slog.Logger) *auditor {
+	return &auditor{seen: seen, log: log}
 }
 
 func (a *auditor) handle(value []byte, correlationID string, partition int32, offset int64) outcome {
@@ -44,12 +44,10 @@ func (a *auditor) handle(value []byte, correlationID string, partition int32, of
 	}
 
 	attrs := append(where, "hazard_id", msg.HazardID, "event_id", msg.EventID)
-	if _, seen := a.seen[msg.HazardID]; seen {
+	if a.seen.Has(msg.HazardID) {
 		a.log.Info("duplicate_skipped", attrs...)
 		return outcomeDuplicate
 	}
-	a.seen[msg.HazardID] = struct{}{}
-
 	a.log.Info("audit_recorded", append(attrs,
 		"event_type", msg.EventType,
 		"severity", p.Severity,
@@ -61,5 +59,9 @@ func (a *auditor) handle(value []byte, correlationID string, partition int32, of
 		"emitted_at", msg.EmittedAt.UTC().Format(time.RFC3339),
 		"payload", msg.Payload,
 	)...)
+
+	if err := a.seen.Add(msg.HazardID); err != nil {
+		a.log.Error("dedup_persist_failed", append(attrs, "error", err.Error())...)
+	}
 	return outcomeRecorded
 }

@@ -3,14 +3,16 @@ package main
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
 type config struct {
-	port    string
-	brokers []string
-	topic   string
-	groupID string
+	port      string
+	brokers   []string
+	topic     string
+	groupID   string
+	dedupFile string
 }
 
 func loadConfig() (config, error) {
@@ -23,6 +25,7 @@ func loadConfig() (config, error) {
 	if len(cfg.brokers) == 0 {
 		return config{}, errors.New("KAFKA_BROKERS is required")
 	}
+	cfg.dedupFile = filepath.Join(getenv("DEDUP_DIR", "/data"), "seen-"+filepath.Base(cfg.groupID)+".txt")
 	return cfg, nil
 }
 
