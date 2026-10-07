@@ -97,7 +97,6 @@ services:
       dockerfile: ./cmd/aggregator/Dockerfile
     environment:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      SEED_FIXTURES: ${SEED_FIXTURES:-true}
       DB_HOST: aggregator-db
       DB_PORT: "5432"
       DB_USER: ${DB_USER}
