@@ -159,6 +159,15 @@ services:
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_AUDIT}
     restart: unless-stopped
 
+  k6:
+    image: grafana/k6:latest
+    profiles: ["loadtest"]
+    environment:
+      BNPB_SECRET: ${BNPB_SECRET}
+    volumes:
+      - ./scripts/loadtest:/scripts:ro
+      - ./evidence:/evidence
+
   pvmbg-mock:
     build:
       context: .
