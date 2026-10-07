@@ -5,8 +5,6 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
-    ports:
-      - "5433:5432"
     volumes:
       - aggregator_db_data:/var/lib/postgresql/data
       - ./cmd/aggregator/migrations:/docker-entrypoint-initdb.d:ro
@@ -20,10 +18,8 @@ services:
 
   client-api-store:
     image: redis:latest
-    ports:
-      - "6380:6379"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
     networks:
-      - default
       - client-api-store-net
 
   client-api:
@@ -32,14 +28,26 @@ services:
       dockerfile: ./cmd/client-api/Dockerfile
     ports:
       - "8080:8080"
-    env_file:
-      - path: .env
-        required: false
-      - path: ./cmd/client-api/.env
-        required: false
+    environment:
+      PORT: "8080"
+      REDIS_HOST: client-api-store
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_AUTH_REVOCATIONS: ${KAFKA_TOPIC_AUTH_REVOCATIONS}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_CLIENT_API_REVOCATIONS}
+      AGGREGATOR_URL: http://aggregator:8080
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      AUTH_JWKS_URL: http://auth:8080/.well-known/jwks.json
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-10}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
     depends_on:
       - client-api-store
       - kafka
+      - auth
+      - aggregator
     restart: unless-stopped
     networks:
       - default
@@ -47,8 +55,7 @@ services:
 
   auth-store:
     image: redis:latest
-    ports:
-      - "6379:6379"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
     networks:
       - auth-store-net
 
@@ -58,11 +65,22 @@ services:
       dockerfile: ./cmd/auth/Dockerfile
     ports:
       - "8084:8080"
-    env_file:
-      - path: .env
-        required: false
-      - path: ./cmd/auth/.env
-        required: false
+    environment:
+      SERVER_PORT: "8080"
+      REDIS_HOST: auth-store
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC: ${KAFKA_TOPIC_AUTH_REVOCATIONS}
+      PRIVATE_KEY_PATH: /app/secrets/auth_priv.pem
+      PUBLIC_KEY_PATH: /app/secrets/auth_pub.pem
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-60}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-1800}
+      MEDIA_SECRET: ${MEDIA_SECRET}
+      LAPANGAN_SECRET: ${LAPANGAN_SECRET}
+      BNPB_SECRET: ${BNPB_SECRET}
     depends_on:
       - auth-store
       - kafka
@@ -71,8 +89,7 @@ services:
       - default
       - auth-store-net
     volumes:
-      - ./secrets/auth_priv.pem:/app/secrets/auth_priv.pem:ro
-      - ./secrets/auth_pub.pem:/app/secrets/auth_pub.pem:ro
+      - ./secrets:/app/secrets:ro
   
   aggregator:
     build:
@@ -102,11 +119,6 @@ services:
       TSUNAMI_GRACE: ${TSUNAMI_GRACE:-30s}
     ports:
       - "8085:8080"
-    env_file:
-      - path: .env
-        required: false
-      - path: ./cmd/aggregator/.env
-        required: false
     depends_on:
       aggregator-db:
         condition: service_healthy
@@ -125,11 +137,6 @@ services:
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_DASHBOARD}
     ports:
       - "8083:8080"
-    env_file:
-      - path: .env
-        required: false
-      - path: ./cmd/dashboard-updater/.env
-        required: false
     restart: unless-stopped
 
   notifier:
