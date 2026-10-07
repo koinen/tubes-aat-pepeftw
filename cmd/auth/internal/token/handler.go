@@ -1,6 +1,9 @@
 package token
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
+	"fmt"
 	"strings"
 	"time"
 	"tubes-aat-pepeftw/cmd/auth/internal/common"
@@ -24,19 +27,39 @@ type tokenHandler struct {
 	redisClient *redis.Client
 	kafkaClient *kgo.Client
 	keyId       string
+	signingKey  ed25519.PrivateKey
+	publicKeyX  string
 }
 
 func NewTokenHandler(
 	cfg config.TokenConfig,
 	redisClient *redis.Client,
 	kafkaClient *kgo.Client,
-) *tokenHandler {
+) (*tokenHandler, error) {
+	parsed, err := jwt.ParseEdPrivateKeyFromPEM([]byte(cfg.PrivateKey))
+	if err != nil {
+		return nil, fmt.Errorf("parse private key: %w", err)
+	}
+	signingKey, ok := parsed.(ed25519.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("private key is not Ed25519")
+	}
+	publicKey := signingKey.Public().(ed25519.PublicKey)
+
 	clients := map[string]Client{
 		"media":      {Scope: "hazard:read:summary", Secret: cfg.MediaSecret},
 		"field-team": {Scope: "hazard:read:raw", Secret: cfg.FieldTeamSecret},
 		"bnpb-ops":   {Scope: "hazard:read:raw", Secret: cfg.BnpbOpsSecret},
 	}
-	return &tokenHandler{clients: clients, cfg: cfg, redisClient: redisClient, kafkaClient: kafkaClient, keyId: "auth-service-key"}
+	return &tokenHandler{
+		clients:     clients,
+		cfg:         cfg,
+		redisClient: redisClient,
+		kafkaClient: kafkaClient,
+		keyId:       "auth-service-key",
+		signingKey:  signingKey,
+		publicKeyX:  base64.RawURLEncoding.EncodeToString(publicKey),
+	}, nil
 }
 
 func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
@@ -94,7 +117,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 
 		jwtToken.Header["kid"] = h.keyId
 
-		signedToken, err := jwtToken.SignedString([]byte(h.cfg.PrivateKey))
+		signedToken, err := jwtToken.SignedString(h.signingKey)
 		if err != nil {
 			return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to sign token")
 		}
@@ -193,7 +216,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 			jwtToken := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwtClaims)
 			jwtToken.Header["kid"] = h.keyId
 
-			signedToken, err := jwtToken.SignedString([]byte(h.cfg.PrivateKey))
+			signedToken, err := jwtToken.SignedString(h.signingKey)
 			if err != nil {
 				return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to sign new access token")
 			}
@@ -240,7 +263,7 @@ func (h *tokenHandler) JWKS(c fiber.Ctx) error {
 				"crv": "Ed25519",
 				"alg": "EdDSA",
 				"use": "sig",
-				"x":   h.cfg.PublicKey,
+				"x":   h.publicKeyX,
 				"kid": h.keyId,
 			},
 		},
