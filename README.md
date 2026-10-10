@@ -17,6 +17,7 @@ Sistem ini mengambil data gempa dari BMKG dan data gunung api dari PVMBG, menyer
 9. [Kafka](#9-kafka)
 10. [Struktur Repositori](#10-struktur-repositori)
 11. [Troubleshooting](#11-troubleshooting)
+12. [Anggota Kelompok](#12-anggota-kelompok)
 
 ## 1. Arsitektur Singkat
 
@@ -118,6 +119,10 @@ File `.env` **tidak** di-*commit*. Semua nilai contoh ada di `.env.example`. Unt
 | Poller | `POLL_INTERVAL`, `BMKG_TIMEOUT`, `PVMBG_TIMEOUT`, `POLL_CURSOR_OVERLAP`, `BREAKER_FAILURES`, `BREAKER_OPEN_FOR`, `TSUNAMI_GRACE` | Interval, batas waktu, dan *circuit breaker* per sumber. |
 | Auth | `JWT_ISSUER`, `JWT_AUDIENCE`, `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`, `MEDIA_SECRET`, `LAPANGAN_SECRET`, `BNPB_SECRET`, `REDIS_PASSWORD` | *Secret* untuk tiga klien: `media`, `field-team`, `bnpb-ops`. |
 | Rate limit | `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_SECONDS` | Default 10 *request* per 60 detik per klien. |
+| Batas beban | `MAX_CONCURRENT_REQUESTS` | Batas *request* bersamaan di `client-api` (default 200). Kelebihannya dijawab `429` dengan `Retry-After`. |
+| Mock BMKG | `BMKG_EVENT_INTERVAL`, `BMKG_SEED_COUNT` | Laju event baru (default 5 detik) dan jumlah data awal (default 25). |
+| Mock PVMBG | `PVMBG_REPORT_INTERVAL`, `PVMBG_SEED_COUNT`, `PVMBG_HANG_MAX` | Laju laporan baru, jumlah data awal, dan batas lama *hang* saat *outage*. |
+| Lainnya | `POLLER_ENABLED`, `LOG_LEVEL` | Menyalakan *poller* aggregator, dan level log mock (`DEBUG`/`INFO`/`WARN`/`ERROR`). |
 
 **Token PVMBG.** Jika `PVMBG_TOKEN_SECRET` diganti, buat ulang `PVMBG_TOKEN`:
 
@@ -132,7 +137,7 @@ Salin hasilnya ke `PVMBG_TOKEN` di `.env`, lalu jalankan ulang `docker compose u
 | Service | Port host | Endpoint utama |
 |---|---|---|
 | `client-api` | 8080 | `GET /hazards`, `GET /hazards/:id`, `GET /sources/status`, `GET /health` |
-| `bmkg-mock` | 8081 | `GET /seismic-events`, `GET /health` |
+| `bmkg-mock` | 8081 | `GET /seismic-events`, `GET /tsunami-warnings`, `GET /health` |
 | `pvmbg-mock` | 8082 | `GET /volcanic-reports`, `POST /admin/outage`, `/admin/schema-version`, `GET /health` |
 | `dashboard-updater` | 8083 | `GET /` (halaman dashboard), `GET /events` (SSE), `GET /api/hazards`, `GET /health` |
 | `auth` | 8084 | `POST /token`, `GET /.well-known/jwks.json`, `GET /health` |
@@ -182,17 +187,43 @@ Jalankan `sh scripts/demo/setup.sh` terlebih dahulu. Laporan HTML hasil Hurl ter
 | P4: Microservice dan penyimpanan fleksibel | Demo manual (lihat di bawah) | Satu service dapat di-*build* dan di-*deploy* ulang tanpa menghentikan service lain; field baru tersimpan di kolom JSONB `attributes` tanpa migrasi tabel. |
 | P5: *Fan-out* / *pub-sub* | `sh scripts/demo/run-p5.sh` | Outbox relay mengirim event ke Kafka; dua konsumen menerima event yang sama; `notifier` dimatikan tanpa menghambat dashboard lalu menyusul; konsumen baru bisa ditambah tanpa mengubah aggregator. |
 
-**Demo manual P4:**
+Beri jeda **60 detik** setelah `run-p2.sh` sebelum menjalankan `run-p3.sh`. Skrip P2 sengaja menghabiskan kuota *rate limit* klien `media`, yang juga dipakai P3.
 
+**Demo manual P4** (jalankan `export MSYS_NO_PATHCONV=1` terlebih dahulu di Git Bash):
+
+1. Setiap komponen berjalan sebagai container terpisah dengan Dockerfile sendiri:
 ```bash
-# deploy ulang hanya service auth, service lain tetap berjalan (uptime tidak ter-reset)
-docker compose up -d --build --no-deps auth
-docker compose ps
-
-# field baru disimpan di attributes tanpa migrasi
-docker compose exec aggregator-db psql -U aat -d aggregator \
-  -c "SELECT source_ref_id, attributes->>'confidence_level' FROM hazard_events WHERE source='PVMBG' ORDER BY ingested_at DESC LIMIT 5;"
+docker compose --profile extra ps --format "table {{.Service}}\t{{.Image}}\t{{.Status}}"
+ls cmd/*/Dockerfile
 ```
+
+2. Satu service di-*rebuild* tanpa menyentuh service lain, dan sistem tetap melayani permintaan. Jalankan pengambilan token sampai `curl` dalam 60 detik:
+```bash
+SECRET=$(grep '^BNPB_SECRET=' .env | cut -d= -f2-); TOKEN=$(curl -s -X POST localhost:8084/token -H 'Content-Type: application/json' -d "{\"grant_type\":\"client_credentials\",\"client_id\":\"bnpb-ops\",\"client_secret\":\"$SECRET\"}" | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+docker compose stop auth
+curl -s -o /dev/null -w "GET /hazards -> HTTP %{http_code}\n" -H "Authorization: Bearer $TOKEN" "localhost:8080/hazards?limit=1"
+docker compose up -d --build --no-deps auth
+docker compose ps --format "table {{.Service}}\t{{.Status}}"
+```
+Hasil: HTTP 200 selama auth mati, dan hanya auth yang waktu "Up"-nya baru.
+
+3. Record sebelum dan sesudah perubahan skema tersimpan berdampingan tanpa migrasi:
+```bash
+ls cmd/aggregator/migrations
+ADMIN=$(grep '^PVMBG_ADMIN_KEY=' .env | cut -d= -f2-)
+curl -s -X POST localhost:8082/admin/schema-version -H "X-Admin-Key: $ADMIN" -H 'Content-Type: application/json' -d '{"version":2}'
+sleep 20
+docker compose exec -T aggregator-db psql -U aat -d aggregator -c "(SELECT source_ref_id, COALESCE(attributes->>'confidence_level','NULL') AS confidence_level, ingested_at FROM hazard_events WHERE source='PVMBG' AND attributes ? 'confidence_level' ORDER BY ingested_at DESC LIMIT 4) UNION ALL (SELECT source_ref_id, 'NULL', ingested_at FROM hazard_events WHERE source='PVMBG' AND NOT attributes ? 'confidence_level' ORDER BY ingested_at DESC LIMIT 4) ORDER BY ingested_at;"
+curl -s -X POST localhost:8082/admin/schema-version -H "X-Admin-Key: $ADMIN" -H 'Content-Type: application/json' -d '{"version":1}'
+```
+Hasil: baris dengan `confidence_level` NULL dan baris yang memiliki nilai tampil di tabel yang sama. Perintah terakhir mengembalikan PVMBG ke skema awal.
+
+4. *Canonical store* hanya dapat dijangkau aggregator:
+```bash
+for s in client-api auth notifier aggregator; do printf '%-12s -> aggregator-db:5432  ' "$s"; docker compose exec -T $s sh -c 'nc -z -w 2 aggregator-db 5432 >/dev/null 2>&1 && echo REACHABLE || echo UNREACHABLE'; done
+docker compose ps aggregator-db --format '{{.Ports}}'
+```
+Hasil: hanya aggregator yang `REACHABLE`, dan port 5432 tidak dipetakan ke host.
 
 **Demo manual P1 (alternatif dari skrip):**
 
@@ -241,7 +272,7 @@ Salah memakai alamat membuat koneksi menggantung.
 | Topic | Partisi | Key | Retensi | Producer | Consumer group |
 |---|---|---|---|---|---|
 | `hazard-events` | 3 | `hazard_id` | 7 hari | aggregator | `dashboard-updater`, `notifier`, `audit-log` |
-| `auth-revocations` | 1 | `jti` | 10 menit | auth | `client-api-revocations` |
+| `auth-revocations` | 1 | tanpa key (isi pesan = `jti`) | 10 menit | auth | `client-api-revocations` |
 
 ### Smoke test
 
@@ -287,7 +318,19 @@ docker-compose.yml
 .env.example
 ```
 
-## 11. Anggota Kelompok
+## 11. Troubleshooting
+
+| Gejala | Solusi |
+|---|---|
+| `The term ... is not recognized` | Terminal masih PowerShell. Jalankan perintah di Git Bash. |
+| `sh: ...\r: not found` | Skrip ter-*checkout* dengan CRLF. Jalankan `git config core.autocrlf input`, lalu *clone* ulang. |
+| `stat C:/Program Files/Git/...: no such file` | Jalankan `export MSYS_NO_PATHCONV=1` di Git Bash. |
+| `port is already allocated` | Port 8080–8085 atau 9094 dipakai aplikasi lain. |
+| `auth` atau `client-api` terus *restart* | Kunci di `secrets/` belum dibuat. Jalankan `sh scripts/gen-auth-keys.sh`. |
+| Ada service yang mati setelah Docker *restart* | Jalankan `docker compose up -d`. |
+| `run-p3.sh` gagal dengan `429` | Kuota *rate limit* `media` masih terpakai oleh `run-p2.sh`. Tunggu 60 detik lalu ulangi. |
+
+## 12. Anggota Kelompok
 
 Kelompok **pepeftw**
 
