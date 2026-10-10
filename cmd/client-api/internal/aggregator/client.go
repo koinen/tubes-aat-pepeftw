@@ -1,9 +1,11 @@
 package aggregator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -14,26 +16,26 @@ type Client struct {
 	baseURL     string
 	internalKey string
 	httpClient  *http.Client
+	log         *slog.Logger
 }
 
-func NewClient(cfg config.AggregatorConfig) *Client {
+const maxIdleConns = 256
+
+func NewClient(cfg config.AggregatorConfig, log *slog.Logger) *Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = maxIdleConns
+	transport.MaxIdleConnsPerHost = maxIdleConns
+
 	return &Client{
 		baseURL:     cfg.BaseURL,
 		internalKey: cfg.InternalKey,
-		httpClient:  &http.Client{Timeout: 5 * time.Second},
+		httpClient:  &http.Client{Timeout: 5 * time.Second, Transport: transport},
+		log:         log,
 	}
 }
 
-// Ping checks if the aggregator is reachable.
-// Uses the internal api key to communicate with the aggregator.
 func (c *Client) Ping() error {
-	req, err := http.NewRequest("GET", c.baseURL+"/health", nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Internal-Key", c.internalKey)
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do("/health", "")
 	if err != nil {
 		return err
 	}
@@ -45,19 +47,8 @@ func (c *Client) Ping() error {
 	return nil
 }
 
-// Get makes a GET request to the aggregator internal API using X-Internal-Key.
-// Passes X-Correlation-ID for end-to-end tracing.
 func (c *Client) Get(path, correlationID string) (map[string]any, int, error) {
-	req, err := http.NewRequest("GET", c.baseURL+path, nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("build aggregator request: %w", err)
-	}
-	req.Header.Set("X-Internal-Key", c.internalKey)
-	if correlationID != "" {
-		req.Header.Set("X-Correlation-ID", correlationID)
-	}
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(path, correlationID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("aggregator request failed: %w", err)
 	}
@@ -74,4 +65,33 @@ func (c *Client) Get(path, correlationID string) (map[string]any, int, error) {
 	}
 
 	return result, resp.StatusCode, nil
+}
+
+func (c *Client) do(path, correlationID string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build aggregator request: %w", err)
+	}
+	req.Header.Set("X-Internal-Key", c.internalKey)
+	if correlationID != "" {
+		req.Header.Set("X-Correlation-ID", correlationID)
+	}
+
+	start := time.Now()
+	resp, err := c.httpClient.Do(req)
+	attrs := []any{
+		"correlation_id", correlationID, "target", "aggregator", "method", http.MethodGet,
+		"path", path, "latency_ms", time.Since(start).Milliseconds(),
+	}
+	if err != nil {
+		c.log.Warn("outbound_call", append(attrs, "status", 0, "error", err.Error())...)
+		return nil, err
+	}
+
+	level := slog.LevelInfo
+	if resp.StatusCode >= 300 {
+		level = slog.LevelWarn
+	}
+	c.log.Log(context.Background(), level, "outbound_call", append(attrs, "status", resp.StatusCode)...)
+	return resp, nil
 }

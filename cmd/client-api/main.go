@@ -14,6 +14,7 @@ import (
 	"tubes-aat-pepeftw/cmd/client-api/internal/aggregator"
 	"tubes-aat-pepeftw/cmd/client-api/internal/auth"
 	"tubes-aat-pepeftw/cmd/client-api/internal/common"
+	"tubes-aat-pepeftw/cmd/client-api/internal/concurrency"
 	"tubes-aat-pepeftw/cmd/client-api/internal/config"
 	"tubes-aat-pepeftw/cmd/client-api/internal/hazard"
 	"tubes-aat-pepeftw/cmd/client-api/internal/health"
@@ -24,7 +25,7 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "client-api")
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -41,15 +42,20 @@ func main() {
 	defer redisClient.Close()
 
 	// --- 2. Upstream Aggregator Client ---
-	aggClient := aggregator.NewClient(cfg.Aggregator)
+	aggClient := aggregator.NewClient(cfg.Aggregator, logger)
 
 	// --- 3. Fetch JWKS from Auth Service on Startup (with brief startup retry) ---
 	var jwks *auth.JWKS
 	for attempts := 0; attempts < 5; attempts++ {
+		start := time.Now()
 		jwks, err = auth.FetchJWKS(cfg.Auth.JWKSURL)
+		attrs := []any{"correlation_id", "", "target", "auth", "method", "GET",
+			"path", "/.well-known/jwks.json", "latency_ms", time.Since(start).Milliseconds()}
 		if err == nil {
+			logger.Info("outbound_call", append(attrs, "status", "ok")...)
 			break
 		}
+		logger.Warn("outbound_call", append(attrs, "status", "error", "error", err.Error())...)
 		logger.Warn("waiting for JWKS from auth service...", "attempt", attempts+1, "error", err)
 		time.Sleep(2 * time.Second)
 	}
@@ -82,7 +88,8 @@ func main() {
 	limiter := ratelimit.New(redisClient, cfg.RateLimit)
 
 	// Protected Routes
-	api := app.Group("", verifier.Middleware, limiter.Middleware)
+	capacity := concurrency.New(cfg.Concurrency.MaxRequests)
+	api := app.Group("", capacity.Middleware, verifier.Middleware, limiter.Middleware)
 
 	hazardHandler := hazard.NewHandler(aggClient)
 	sourceHandler := source.NewHandler(aggClient)
