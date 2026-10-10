@@ -7,12 +7,13 @@ import (
 )
 
 type Config struct {
-	Server     ServerConfig
-	Redis      RedisConfig
-	Kafka      KafkaConfig
-	Aggregator AggregatorConfig
-	Auth       AuthConfig
-	RateLimit  RateLimitConfig
+	Server      ServerConfig
+	Redis       RedisConfig
+	Kafka       KafkaConfig
+	Aggregator  AggregatorConfig
+	Auth        AuthConfig
+	RateLimit   RateLimitConfig
+	Concurrency ConcurrencyConfig
 }
 
 type ServerConfig struct {
@@ -45,6 +46,10 @@ type AuthConfig struct {
 type RateLimitConfig struct {
 	Max           int
 	WindowSeconds int
+}
+
+type ConcurrencyConfig struct {
+	MaxRequests int
 }
 
 func LoadConfig() (*Config, error) {
@@ -97,12 +102,17 @@ func LoadConfig() (*Config, error) {
 		WindowSeconds: shared.GetEnvInt("RATE_LIMIT_WINDOW_SECONDS", 60),
 	}
 
+	concurrencyCfg := ConcurrencyConfig{
+		MaxRequests: shared.GetEnvInt("MAX_CONCURRENT_REQUESTS", 200),
+	}
+
 	return &Config{
-		Server:     serverCfg,
-		Redis:      redisCfg,
-		Kafka:      kafkaCfg,
-		Aggregator: aggCfg,
-		Auth:       authCfg,
-		RateLimit:  rateLimitCfg,
+		Server:      serverCfg,
+		Redis:       redisCfg,
+		Kafka:       kafkaCfg,
+		Aggregator:  aggCfg,
+		Auth:        authCfg,
+		RateLimit:   rateLimitCfg,
+		Concurrency: concurrencyCfg,
 	}, nil
 }

@@ -23,7 +23,7 @@ func main() {
 		log.Fatal("Failed to load config:", err)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "auth")
 	onError := common.ErrorHandler(logger)
 
 	ctx := context.Background()
@@ -45,7 +45,7 @@ func main() {
 
 	// handlers
 	healthHandler := health.NewHealthHandler()
-	tokenHandler, err := token.NewTokenHandler(config.Token, redisClient, kafkaClient)
+	tokenHandler, err := token.NewTokenHandler(config.Token, redisClient, kafkaClient, logger)
 	if err != nil {
 		log.Fatal("Failed to init token handler:", err)
 	}

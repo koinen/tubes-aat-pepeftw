@@ -18,7 +18,7 @@ services:
       - store-net
 
   client-api-store:
-    image: redis:latest
+    image: redis:8.10.2
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
     restart: unless-stopped
     networks:
@@ -45,6 +45,7 @@ services:
       JWT_AUDIENCE: ${JWT_AUDIENCE}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-10}
       RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      MAX_CONCURRENT_REQUESTS: ${MAX_CONCURRENT_REQUESTS:-200}
     depends_on:
       - client-api-store
       - kafka
@@ -56,7 +57,7 @@ services:
       - client-api-store-net
 
   auth-store:
-    image: redis:latest
+    image: redis:8.10.2
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
     restart: unless-stopped
     networks:
@@ -169,7 +170,7 @@ services:
     restart: unless-stopped
 
   k6:
-    image: grafana/k6:latest
+    image: grafana/k6:2.3.0
     profiles: ["loadtest"]
     environment:
       BNPB_SECRET: ${BNPB_SECRET}
