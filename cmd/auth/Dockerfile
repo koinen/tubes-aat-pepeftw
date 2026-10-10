@@ -12,7 +12,7 @@ COPY cmd/auth/ cmd/auth/
 RUN CGO_ENABLED=0 GOOS=linux go build -o ./bin/auth ./cmd/auth
 
 # Stage 2: Create a minimal image for the application
-FROM alpine:latest
+FROM alpine:3.24.2
 
 WORKDIR /root/
 COPY --from=builder /app/bin/auth .

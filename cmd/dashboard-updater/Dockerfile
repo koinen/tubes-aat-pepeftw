@@ -11,7 +11,7 @@ COPY cmd/dashboard-updater/ cmd/dashboard-updater/
 RUN CGO_ENABLED=0 GOOS=linux go build -o ./bin/dashboard-updater ./cmd/dashboard-updater
 
 # Stage 2: Create a minimal image for the application
-FROM alpine:latest
+FROM alpine:3.24.2
 
 WORKDIR /root/
 COPY --from=builder /app/bin/dashboard-updater .

@@ -11,7 +11,7 @@ COPY cmd/audit-log/ cmd/audit-log/
 RUN CGO_ENABLED=0 GOOS=linux go build -o ./bin/audit-log ./cmd/audit-log
 
 # Stage 2: Create a minimal image for the application
-FROM alpine:latest
+FROM alpine:3.24.2
 
 WORKDIR /root/
 COPY --from=builder /app/bin/audit-log .
