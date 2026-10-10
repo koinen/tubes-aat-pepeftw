@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"tubes-aat-pepeftw/cmd/auth/internal/common"
@@ -29,12 +30,14 @@ type tokenHandler struct {
 	keyId       string
 	signingKey  ed25519.PrivateKey
 	publicKeyX  string
+	log         *slog.Logger
 }
 
 func NewTokenHandler(
 	cfg config.TokenConfig,
 	redisClient *redis.Client,
 	kafkaClient *kgo.Client,
+	log *slog.Logger,
 ) (*tokenHandler, error) {
 	parsed, err := jwt.ParseEdPrivateKeyFromPEM([]byte(cfg.PrivateKey))
 	if err != nil {
@@ -59,6 +62,7 @@ func NewTokenHandler(
 		keyId:       "auth-service-key",
 		signingKey:  signingKey,
 		publicKeyX:  base64.RawURLEncoding.EncodeToString(publicKey),
+		log:         log,
 	}, nil
 }
 
@@ -197,7 +201,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 				Topic: "auth-revocations",
 				Value: []byte(oldJti),
 			}
-			if err := h.kafkaClient.ProduceSync(c.Context(), record).FirstErr(); err != nil {
+			if err := h.publishRevocation(c, record); err != nil {
 				return common.WriteError(c, fiber.StatusInternalServerError, "INTERNAL", "Failed to publish revocation message")
 			}
 
@@ -236,7 +240,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 				Topic: "auth-revocations",
 				Value: []byte(oldJti),
 			}
-			_ = h.kafkaClient.ProduceSync(c.Context(), record).FirstErr() // best-effort
+			_ = h.publishRevocation(c, record) // best-effort
 			return common.WriteError(c, fiber.StatusUnauthorized, "UNAUTHORIZED", "Token reuse detected. Please try logging in again.")
 		}
 
@@ -278,4 +282,19 @@ func parseRefreshToken(token string) (sid string, secret string, ok bool) {
 	sid = parts[0]
 	secret = parts[1]
 	return sid, secret, true
+}
+
+func (h *tokenHandler) publishRevocation(c fiber.Ctx, record *kgo.Record) error {
+	start := time.Now()
+	err := h.kafkaClient.ProduceSync(c.Context(), record).FirstErr()
+	attrs := []any{
+		"correlation_id", common.CorrelationIDFrom(c), "target", "kafka", "method", "PRODUCE",
+		"path", record.Topic, "latency_ms", time.Since(start).Milliseconds(),
+	}
+	if err != nil {
+		h.log.Warn("outbound_call", append(attrs, "status", "error", "error", err.Error())...)
+		return err
+	}
+	h.log.Info("outbound_call", append(attrs, "status", "ok")...)
+	return nil
 }
