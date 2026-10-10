@@ -5,12 +5,24 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
-    ports:
-      - "5433:5432"
     volumes:
       - aggregator_db_data:/var/lib/postgresql/data
+      - ./cmd/aggregator/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
     networks:
       - store-net
+
+  client-api-store:
+    image: redis:8.10.2
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    restart: unless-stopped
+    networks:
+      - client-api-store-net
 
   client-api:
     build:
@@ -18,17 +30,36 @@ services:
       dockerfile: ./cmd/client-api/Dockerfile
     ports:
       - "8080:8080"
-
-  auth-db:
-    image: postgres:17
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-    ports:
-      - "5434:5432"
-    volumes:
-      - auth_db_data:/var/lib/postgresql/data
+      PORT: "8080"
+      REDIS_HOST: client-api-store
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_AUTH_REVOCATIONS: ${KAFKA_TOPIC_AUTH_REVOCATIONS}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_CLIENT_API_REVOCATIONS}
+      AGGREGATOR_URL: http://aggregator:8080
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      AUTH_JWKS_URL: http://auth:8080/.well-known/jwks.json
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-10}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      MAX_CONCURRENT_REQUESTS: ${MAX_CONCURRENT_REQUESTS:-200}
+    depends_on:
+      - client-api-store
+      - kafka
+      - auth
+      - aggregator
+    restart: unless-stopped
+    networks:
+      - default
+      - client-api-store-net
+
+  auth-store:
+    image: redis:8.10.2
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    restart: unless-stopped
     networks:
       - auth-store-net
 
@@ -38,45 +69,158 @@ services:
       dockerfile: ./cmd/auth/Dockerfile
     ports:
       - "8084:8080"
+    environment:
+      SERVER_PORT: "8080"
+      REDIS_HOST: auth-store
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC: ${KAFKA_TOPIC_AUTH_REVOCATIONS}
+      PRIVATE_KEY_PATH: /app/secrets/auth_priv.pem
+      PUBLIC_KEY_PATH: /app/secrets/auth_pub.pem
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-60}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-1800}
+      MEDIA_SECRET: ${MEDIA_SECRET}
+      LAPANGAN_SECRET: ${LAPANGAN_SECRET}
+      BNPB_SECRET: ${BNPB_SECRET}
     depends_on:
-      - auth-db
+      - auth-store
+      - kafka
+    restart: unless-stopped
     networks:
       - default
       - auth-store-net
+    volumes:
+      - ./secrets:/app/secrets:ro
   
   aggregator:
     build:
       context: .
       dockerfile: ./cmd/aggregator/Dockerfile
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DB_HOST: aggregator-db
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      POLLER_ENABLED: ${POLLER_ENABLED:-true}
+      BMKG_URL: http://bmkg-mock:8080
+      BMKG_API_KEY: ${BMKG_API_KEY}
+      PVMBG_URL: http://pvmbg-mock:8080
+      PVMBG_TOKEN: ${PVMBG_TOKEN}
+      POLL_INTERVAL: ${POLL_INTERVAL:-3s}
+      BMKG_TIMEOUT: ${BMKG_TIMEOUT:-1s}
+      PVMBG_TIMEOUT: ${PVMBG_TIMEOUT:-4s}
+      POLL_CURSOR_OVERLAP: ${POLL_CURSOR_OVERLAP:-1m}
+      BREAKER_FAILURES: ${BREAKER_FAILURES:-3}
+      BREAKER_OPEN_FOR: ${BREAKER_OPEN_FOR:-15s}
+      TSUNAMI_GRACE: ${TSUNAMI_GRACE:-30s}
     ports:
       - "8085:8080"
     depends_on:
-      - aggregator-db
+      aggregator-db:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - default
       - store-net
-
 
   dashboard-updater:
     build:
       context: .
       dockerfile: ./cmd/dashboard-updater/Dockerfile
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_DASHBOARD}
     ports:
       - "8083:8080"
-  
+    restart: unless-stopped
+
+  notifier:
+    build:
+      context: .
+      dockerfile: ./cmd/notifier/Dockerfile
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_NOTIFIER}
+      DEDUP_DIR: /data
+    volumes:
+      - notifier_data:/data
+    restart: unless-stopped
+
+  audit-log:
+    build:
+      context: .
+      dockerfile: ./cmd/audit-log/Dockerfile
+    profiles: ["extra"]
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_AUDIT}
+      DEDUP_DIR: /data
+    volumes:
+      - audit_log_data:/data
+    restart: unless-stopped
+
+  k6:
+    image: grafana/k6:2.3.0
+    profiles: ["loadtest"]
+    environment:
+      BNPB_SECRET: ${BNPB_SECRET}
+    volumes:
+      - ./scripts/loadtest:/scripts:ro
+      - ./evidence:/evidence
+
   pvmbg-mock:
     build:
       context: .
       dockerfile: ./cmd/pvmbg-mock/Dockerfile
     ports:
       - "8082:8080"
-  
+    environment:
+      PVMBG_TOKEN_SECRET: ${PVMBG_TOKEN_SECRET}
+      PVMBG_ADMIN_KEY: ${PVMBG_ADMIN_KEY}
+      PVMBG_DELAY_MIN: ${PVMBG_DELAY_MIN:-500ms}
+      PVMBG_DELAY_MAX: ${PVMBG_DELAY_MAX:-3000ms}
+      PVMBG_REPORT_INTERVAL: ${PVMBG_REPORT_INTERVAL:-5s}
+      PVMBG_SEED_COUNT: ${PVMBG_SEED_COUNT:-25}
+      PVMBG_SCHEMA_VERSION: ${PVMBG_SCHEMA_VERSION:-1}
+      PVMBG_HANG_MAX: ${PVMBG_HANG_MAX:-5m}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
   bmkg-mock:
     build:
       context: .
       dockerfile: ./cmd/bmkg-mock/Dockerfile
     ports:
       - "8081:8080"
+    environment:
+      BMKG_API_KEY: ${BMKG_API_KEY}
+      BMKG_DELAY_MIN: ${BMKG_DELAY_MIN:-50ms}
+      BMKG_DELAY_MAX: ${BMKG_DELAY_MAX:-150ms}
+      BMKG_EVENT_INTERVAL: ${BMKG_EVENT_INTERVAL:-5s}
+      BMKG_SEED_COUNT: ${BMKG_SEED_COUNT:-25}
+      BMKG_TSUNAMI_RATE: ${BMKG_TSUNAMI_RATE:-0.15}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
 
   kafka:
     image: apache/kafka:4.3.1
@@ -103,6 +247,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 12
+    restart: unless-stopped
     mem_limit: 1g
 
   kafka-init:
@@ -122,9 +267,10 @@ services:
 
 volumes:
   aggregator_db_data:
-  auth_db_data:
   kafka_data:
-
+  notifier_data:
+  audit_log_data:
 networks:
   store-net:
   auth-store-net:
+  client-api-store-net:

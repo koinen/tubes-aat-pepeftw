@@ -38,7 +38,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Since'
       description: |
-        Mengembalikan TsunamiWarning dengan issued_at >= since. Tanpa since, mengembalikan semua. Korelasi ke SeismicEvent lewat related_event_id dilakukan oleh Aggregator.
+        Mengembalikan TsunamiWarning yang occurred_at SeismicEvent terkaitnya >= since. Warning dibuat bersamaan dengan SeismicEvent terkait. Tanpa since, mengembalikan semua. Korelasi ke SeismicEvent lewat related_event_id dilakukan oleh Aggregator.
       responses:
         '200':
           description: OK
@@ -111,7 +111,7 @@ components:
     TsunamiWarning:
       type: object
       description: Hanya untuk SeismicEvent dengan potential_tsunami = true.
-      required: [warning_id, related_event_id, threat_level, affected_zones, estimated_arrival, issued_at]
+      required: [warning_id, related_event_id, threat_level, affected_zones, estimated_arrival]
       properties:
         warning_id:
           type: string
@@ -128,10 +128,6 @@ components:
         estimated_arrival:
           type: string
           format: date-time
-        issued_at:
-          type: string
-          format: date-time
-          description: Field tambahan di luar spesifikasi. Waktu BMKG menerbitkan peringatan, dipakai untuk filter since.
     ErrorResponse:
       type: object
       required: [error]
