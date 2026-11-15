@@ -29,6 +29,13 @@ const (
 
 func main() {
 	log := logging.New("aggregator")
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		if err := runMigrate(log); err != nil {
+			log.Error("migrate_failed", "error", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(log); err != nil {
 		log.Error("aggregator_stopped", "error", err.Error())
 		os.Exit(1)

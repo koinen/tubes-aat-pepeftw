@@ -10,4 +10,5 @@ INSERT INTO volcano_ref (volcano_id, name, latitude, longitude) VALUES
     ('IBU',                'Ibu',                 1.488, 127.630),
     ('DUKONO',             'Dukono',              1.693, 127.894),
     ('KARANGETANG',        'Karangetang',         2.781, 125.407),
-    ('RUANG',              'Ruang',               2.300, 125.370);
+    ('RUANG',              'Ruang',               2.300, 125.370)
+ON CONFLICT (volcano_id) DO NOTHING;
