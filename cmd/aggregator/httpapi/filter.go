@@ -17,8 +17,8 @@ func parseHazardFilter(c fiber.Ctx) (repository.HazardFilter, error) {
 
 	if v := c.Query("type"); v != "" {
 		t := model.HazardType(v)
-		if t != model.HazardSeismic && t != model.HazardVolcanic {
-			return f, errors.New("type must be SEISMIC or VOLCANIC")
+		if !t.Valid() {
+			return f, errors.New("type must be SEISMIC, VOLCANIC, WILDFIRE or COASTAL")
 		}
 		f.Type = &t
 	}
