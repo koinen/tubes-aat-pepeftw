@@ -20,7 +20,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	dbURL, err := databaseURL()
+	dbURL, err := DatabaseURL()
 	if err != nil {
 		return Config{}, err
 	}
@@ -59,19 +59,24 @@ func splitList(s string) []string {
 	return out
 }
 
-func databaseURL() (string, error) {
+func DatabaseURL() (string, error) {
 	for _, key := range []string{"DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"} {
 		if os.Getenv(key) == "" {
 			return "", fmt.Errorf("%s is required", key)
 		}
 	}
 
+	query := url.Values{}
+	query.Set("sslmode", "disable")
+	query.Set("pool_max_conn_lifetime", getenv("DB_POOL_MAX_CONN_LIFETIME", "5m"))
+	query.Set("pool_health_check_period", getenv("DB_POOL_HEALTH_CHECK_PERIOD", "15s"))
+
 	u := url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(os.Getenv("DB_USER"), os.Getenv("DB_PASSWORD")),
-		Host:     net.JoinHostPort(os.Getenv("DB_HOST"), getenv("DB_PORT", "5432")),
+		Host:     net.JoinHostPort(os.Getenv("DB_HOST"), getenv("DB_PORT", "26257")),
 		Path:     "/" + os.Getenv("DB_NAME"),
-		RawQuery: "sslmode=disable",
+		RawQuery: query.Encode(),
 	}
 	return u.String(), nil
 }

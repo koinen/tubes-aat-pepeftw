@@ -53,24 +53,27 @@ func (p *PostgresRepository) SaveHazard(ctx context.Context, h model.HazardEvent
 		return "", fmt.Errorf("save hazard %s: %w", h.HazardID, err)
 	}
 
-	outcome := repository.OutcomeUnchanged
-	err = pgx.BeginFunc(ctx, p.pool, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, insertHazard,
-			h.HazardID, h.Source, h.SourceRefID, h.HazardType, h.Severity, h.AreaName,
-			h.Latitude, h.Longitude, h.OccurredAt, h.IngestedAt, h.Attributes)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return nil
-		}
+	var outcome repository.SaveOutcome
+	err = withRetry(ctx, func() error {
+		outcome = repository.OutcomeUnchanged
+		return pgx.BeginFunc(ctx, p.pool, func(tx pgx.Tx) error {
+			tag, err := tx.Exec(ctx, insertHazard,
+				h.HazardID, h.Source, h.SourceRefID, h.HazardType, h.Severity, h.AreaName,
+				h.Latitude, h.Longitude, h.OccurredAt, h.IngestedAt, h.Attributes)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() == 0 {
+				return nil
+			}
 
-		if _, err := tx.Exec(ctx, insertOutbox,
-			msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx))); err != nil {
-			return err
-		}
-		outcome = repository.OutcomeCreated
-		return nil
+			if _, err := tx.Exec(ctx, insertOutbox,
+				msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx))); err != nil {
+				return err
+			}
+			outcome = repository.OutcomeCreated
+			return nil
+		})
 	})
 	if err != nil {
 		return "", fmt.Errorf("save hazard %s: %w", h.HazardID, err)
