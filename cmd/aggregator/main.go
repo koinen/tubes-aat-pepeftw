@@ -15,6 +15,7 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/config"
 	"tubes-aat-pepeftw/cmd/aggregator/httpapi"
 	"tubes-aat-pepeftw/cmd/aggregator/kafka"
+	"tubes-aat-pepeftw/cmd/aggregator/leader"
 	"tubes-aat-pepeftw/cmd/aggregator/logging"
 	"tubes-aat-pepeftw/cmd/aggregator/poller"
 	"tubes-aat-pepeftw/cmd/aggregator/relay"
@@ -42,6 +43,11 @@ func run(log *slog.Logger) error {
 	}
 
 	pollerCfg, err := poller.LoadConfig()
+	if err != nil {
+		return err
+	}
+
+	leaderCfg, err := leader.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -82,20 +88,26 @@ func run(log *slog.Logger) error {
 		pollerDone := make(chan struct{})
 		go func() {
 			defer close(pollerDone)
-			poller.New(pollerCfg, poller.Deps{
-				Hazards:   repo,
-				Rejected:  repo,
-				Cursors:   repo,
-				Statuses:  repo,
-				Volcanoes: repo,
-				Log:       log,
-			}).Run(ctx)
+			err := leader.Run(ctx, leaderCfg, log, func(leadCtx context.Context) {
+				poller.New(pollerCfg, poller.Deps{
+					Hazards:   repo,
+					Rejected:  repo,
+					Cursors:   repo,
+					Statuses:  repo,
+					Volcanoes: repo,
+					Log:       log,
+				}).Run(leadCtx)
+			})
+			if err != nil {
+				log.Error("leader_election_failed", "error", err.Error())
+				stop()
+			}
 		}()
 		defer func() {
 			stop()
 			<-pollerDone
 		}()
-		log.Info("poller_started")
+		log.Info("poller_ready")
 	}
 
 	app := httpapi.New(httpapi.Deps{
