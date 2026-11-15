@@ -18,6 +18,7 @@ Sistem ini mengambil data gempa dari BMKG dan data gunung api dari PVMBG, menyer
 10. [Struktur Repositori](#10-struktur-repositori)
 11. [Troubleshooting](#11-troubleshooting)
 12. [Anggota Kelompok](#12-anggota-kelompok)
+13. [Milestone 2: Kubernetes](#13-milestone-2-kubernetes)
 
 ## 1. Arsitektur Singkat
 
@@ -339,3 +340,68 @@ Kelompok **pepeftw**
 | 1 | Peter Wongsoredjo | 13523039 |
 | 2 | Jessica Allen | 13523059 |
 | 3 | David Bakti Lodianto | 13523083 |
+
+## 13. Milestone 2: Kubernetes
+
+Mulai Milestone 2 seluruh komponen berjalan di Kubernetes pada namespace `sistem-informasi-kebencanaan-bnpb`. Penyimpanan kanonik aggregator memakai CockroachDB v24.2.4 (versi terakhir yang tidak memerlukan license key). Docker compose tetap tersedia untuk pengembangan cepat dengan CockroachDB single-node.
+
+### Deploy dengan satu perintah
+
+```bash
+sh scripts/kind-up.sh
+```
+
+```bash
+bash scripts/deploy.sh
+```
+
+`kind-up.sh` membuat cluster pengembangan kind (1 control plane dan 3 worker). `deploy.sh` membuat Secret dari `.env`, membangun image, memuatnya ke kind, lalu menerapkan manifest bertahap (infra, init, migrate, apps) dan menjalankan health check.
+
+| Opsi deploy.sh | Fungsi |
+|---|---|
+| `--overlay <nama>` | Overlay di `deploy/overlays` (bawaan `dev`) |
+| `--registry <prefix>` | Push ke registry, misalnya `ghcr.io/<owner>/`, bukan kind |
+| `--tag <tag> --no-build` | Pakai image yang sudah ada |
+| `--only <service>` | Build ulang dan rollout satu service saja |
+| `--fresh` | Hapus namespace beserta datanya lalu deploy dari awal |
+
+### Struktur manifest
+
+| Path | Isi |
+|---|---|
+| `deploy/base` | Topologi asli untuk cluster demo (CockroachDB 4, Kafka 3, aggregator 3) |
+| `deploy/overlays/dev` | Replika lebih sedikit untuk kind di laptop (CockroachDB 3, Kafka 1) |
+| `deploy/kind/cluster.yaml` | Konfigurasi cluster kind dan port host 8080 sampai 8085 |
+| `cmd/aggregator/migrations` | Skema SQL, dijalankan oleh Job `aggregator-migrate` (`./aggregator migrate`) |
+
+Setiap pod memiliki label `role` (aggregator, store, broker, consumer, api, mock, sensor, other) serta `resources.requests` dan `resources.limits` sesuai Lampiran B. Kredensial berada di Secret `bnpb-secrets` dan `auth-keys`, konfigurasi di ConfigMap. NetworkPolicy memastikan CockroachDB hanya dapat dijangkau aggregator, `auth-store` hanya oleh auth, dan `client-api-store` hanya oleh client-api.
+
+### Anggaran memori (requests)
+
+| Komponen | Pod (dev) | Requests per pod |
+|---|---|---|
+| CockroachDB | 3 | 512Mi |
+| Kafka | 1 | 512Mi |
+| Redis auth-store, client-api-store | 2 | 512Mi |
+| aggregator | 1 | 256Mi |
+| auth, client-api | 2 | 128Mi |
+| notifier, dashboard-updater | 2 | 128Mi |
+| bmkg-mock, pvmbg-mock | 2 | 64Mi |
+
+Pemakaian nyata cluster dev sekitar 3,9 GB, sehingga muat dalam batas WSL 8 GB.
+
+### Menambah service baru
+
+1. Buat folder `deploy/base/<service>/` berisi `configmap.yaml`, `deployment.yaml`, dan `service.yaml` mengikuti service yang sudah ada.
+2. Pod template wajib memiliki label `app`, `role`, serta `bnpb.io/stage: apps`, memory requests dan limits, dan `enableServiceLinks: false`.
+3. Image ditulis `bnpb/<service>:TAG`, lalu tambahkan nama service ke `SERVICES` di `scripts/deploy/images.sh`.
+4. Daftarkan file baru di `deploy/base/kustomization.yaml`.
+5. Migrasi SQL baru diberi nomor berikutnya di `cmd/aggregator/migrations` (nomor `004` dicadangkan untuk lease aggregator).
+
+### Pindah dari compose Milestone 1
+
+Volume database compose lama berisi data Postgres. Jalankan sekali:
+
+```bash
+docker compose down -v
+```
