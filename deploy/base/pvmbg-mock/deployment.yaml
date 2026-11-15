@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pvmbg-mock
+  labels:
+    app: pvmbg-mock
+    bnpb.io/stage: apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pvmbg-mock
+  template:
+    metadata:
+      labels:
+        app: pvmbg-mock
+        role: mock
+    spec:
+      enableServiceLinks: false
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+      containers:
+        - name: pvmbg-mock
+          image: bnpb/pvmbg-mock:TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: pvmbg-mock-config
+            - configMapRef:
+                name: bnpb-common
+          env:
+            - name: PVMBG_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: PVMBG_TOKEN_SECRET
+            - name: PVMBG_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: PVMBG_ADMIN_KEY
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 128Mi

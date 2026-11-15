@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: crdb
+  labels:
+    app: crdb
+    bnpb.io/stage: infra
+spec:
+  serviceName: crdb-headless
+  replicas: 4
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: crdb
+  template:
+    metadata:
+      labels:
+        app: crdb
+        role: store
+    spec:
+      enableServiceLinks: false
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: crdb
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: cockroach
+          image: cockroachdb/cockroach:v24.2.4
+          command:
+            - /cockroach/cockroach
+            - start
+            - --insecure
+            - --advertise-addr=$(POD_NAME).crdb-headless
+            - --http-addr=0.0.0.0:8080
+            - --join=crdb-0.crdb-headless,crdb-1.crdb-headless,crdb-2.crdb-headless
+            - --locality=node=$(NODE_NAME)
+            - --cache=128MiB
+            - --max-sql-memory=128MiB
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: GOMEMLIMIT
+              value: 700MiB
+          ports:
+            - name: grpc
+              containerPort: 26257
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health?ready=1
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /cockroach/cockroach-data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
