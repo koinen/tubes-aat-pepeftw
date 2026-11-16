@@ -39,5 +39,11 @@ func parseHazardFilter(c fiber.Ctx) (repository.HazardFilter, error) {
 		f.Limit = n
 	}
 
+	cursor, err := repository.DecodeKeyset(c.Query("cursor"))
+	if err != nil {
+		return f, errors.New("cursor is invalid, pass next_cursor from the previous page")
+	}
+	f.Cursor = cursor
+
 	return f, nil
 }
