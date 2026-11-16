@@ -80,6 +80,58 @@ paths:
           $ref: './common.yaml#/components/responses/Unauthorized'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+  /internal/analytics:
+    get:
+      operationId: getAnalytics
+      description: |
+        Agregasi seluruh HazardEvent lintas 16 unit penyimpanan pada satu snapshot, dipakai analytics-dashboard.
+        Kategori TSUNAMI adalah SEISMIC yang memiliki attributes.tsunami_warnings, sisanya mengikuti hazard_type, sehingga setiap kejadian masuk tepat satu kategori.
+      parameters:
+        - name: from
+          in: query
+          description: Batas bawah occurred_at (inklusif), bawaan 30 hari lalu.
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: Batas atas occurred_at (eksklusif), bawaan sekarang.
+          schema: { type: string, format: date-time }
+        - name: bucket
+          in: query
+          schema: { type: string, enum: [hour, day, month, year], default: day }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [from, to, bucket, total, series, by_severity, by_area, as_of, partial, unavailable_units]
+                properties:
+                  from: { type: string, format: date-time }
+                  to: { type: string, format: date-time }
+                  bucket: { type: string }
+                  total: { type: integer }
+                  series:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        bucket: { type: string, format: date-time }
+                        category: { type: string, enum: [SEISMIC, TSUNAMI, VOLCANIC, WILDFIRE, COASTAL] }
+                        count: { type: integer }
+                  by_severity:
+                    type: array
+                    items: { type: object, properties: { name: { type: string }, count: { type: integer } } }
+                  by_area:
+                    type: array
+                    items: { type: object, properties: { name: { type: string }, count: { type: integer } } }
+                  as_of: { type: string, format: date-time }
+                  partial: { type: boolean }
+                  unavailable_units: { type: array, items: { type: string } }
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
   /internal/sources/status:
     get:
       operationId: getSourcesStatus

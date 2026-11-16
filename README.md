@@ -478,3 +478,17 @@ CockroachDB menyimpan 3 replika setiap range pada node yang berbeda. Bila satu n
 | Ganti node yang hilang permanen dengan node baru | `bash scripts/p1/replace-node.sh <node yang hilang>` |
 
 `replace-node.sh` diperlukan karena volume local-path terikat pada node asalnya. Skrip menghapus objek node yang hilang, melepas PVC pod CockroachDB yang tinggal di sana sehingga pod pindah ke node kosong dengan disk baru, lalu men-decommission node CockroachDB yang mati. Pada VM, node dimatikan oleh Tester Agent atau dengan mematikan VM, lalu langkah pemulihannya sama.
+
+### P1: Dashboard analitik
+
+Service `analytics-dashboard` menyajikan halaman analitik di port `8086` (NodePort `30086`). Halaman memuat line chart jumlah kejadian per jenis bahaya dengan pilihan rentang waktu, jumlah per severity, dan tabel per wilayah. Angka dihitung aggregator lintas 16 unit penyimpanan pada satu snapshot (`GET /internal/analytics`), sehingga sama dengan hitungan langsung dari Audit API `events`.
+
+| Kategori | Aturan |
+|---|---|
+| Gempa | `SEISMIC` tanpa peringatan tsunami |
+| Tsunami | `SEISMIC` yang memiliki `attributes.tsunami_warnings` |
+| Gunung berapi | `VOLCANIC` |
+| Kebakaran hutan | `WILDFIRE` |
+| Pesisir | `COASTAL` |
+
+Bila sebagian unit tidak terjangkau, halaman tetap tampil, setiap angka diberi tanda `*`, dan banner menyebut unit yang hilang. Cluster kind yang dibuat sebelum port `8086` ditambahkan dapat memakai `kubectl -n sistem-informasi-kebencanaan-bnpb port-forward svc/analytics-dashboard 8086:8080`.
