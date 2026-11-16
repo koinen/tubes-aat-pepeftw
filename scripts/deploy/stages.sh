@@ -32,6 +32,17 @@ wait_rollouts() {
 }
 
 wait_pods_running() {
+  local tries=0
+  until [ -n "$(kubectl get pod -n "$NAMESPACE" -l "app=$1" -o name 2>/dev/null)" ]
+  do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 60 ]
+    then
+      echo "no pods with app=$1 after 120s" >&2
+      return 1
+    fi
+    sleep 2
+  done
   kubectl wait -n "$NAMESPACE" --for=jsonpath='{.status.phase}'=Running pod -l "app=$1" --timeout="${WAIT_TIMEOUT}"
 }
 
