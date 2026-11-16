@@ -3,20 +3,15 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"strings"
-	"time"
 	"tubes-aat-pepeftw/cmd/auth/internal/config"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-const deliveryTimeout = 5 * time.Second
-
 func InitKafka(ctx context.Context, cfg config.KafkaConfig) (*kgo.Client, error) {
 	cl, err := kgo.NewClient(
-		kgo.SeedBrokers(splitBrokers(cfg.Brokers)...),
-		kgo.DefaultProduceTopic(cfg.Topic),
-		kgo.RecordDeliveryTimeout(deliveryTimeout),
+		kgo.SeedBrokers(cfg.Brokers),
+		kgo.ConsumeTopics(cfg.Topic),
 	)
 
 	if err != nil {
@@ -29,14 +24,4 @@ func InitKafka(ctx context.Context, cfg config.KafkaConfig) (*kgo.Client, error)
 	}
 
 	return cl, nil
-}
-
-func splitBrokers(raw string) []string {
-	var brokers []string
-	for _, b := range strings.Split(raw, ",") {
-		if b = strings.TrimSpace(b); b != "" {
-			brokers = append(brokers, b)
-		}
-	}
-	return brokers
 }

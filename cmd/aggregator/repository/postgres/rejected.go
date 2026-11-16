@@ -20,7 +20,7 @@ func (p *PostgresRepository) SaveRejected(ctx context.Context, r model.RejectedR
 		r.RejectedAt = p.now()
 	}
 
-	_, err := p.fencedExec(ctx, insertRejected,
+	_, err := p.pool.Exec(ctx, insertRejected,
 		r.Source, r.Endpoint, nullable(r.SourceRefID), r.Reason, r.Payload, r.RejectedAt.UTC())
 	if err != nil {
 		return fmt.Errorf("save rejected %s/%s: %w", r.Source, r.Endpoint, err)

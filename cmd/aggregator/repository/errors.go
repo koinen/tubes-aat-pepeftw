@@ -2,7 +2,4 @@ package repository
 
 import "errors"
 
-var (
-	ErrNotFound    = errors.New("not found")
-	ErrUnavailable = errors.New("storage unavailable")
-)
+var ErrNotFound = errors.New("not found")
