@@ -21,3 +21,8 @@ data:
     sql "CREATE USER IF NOT EXISTS ${DB_USER}"
     sql "GRANT ALL ON DATABASE ${DB_NAME} TO ${DB_USER}"
     sql "GRANT ALL ON SCHEMA ${DB_NAME}.public TO ${DB_USER}"
+    sql "SET CLUSTER SETTING server.time_until_store_dead = '75s'"
+    for zone in "DATABASE system" "RANGE meta" "RANGE system" "RANGE liveness"
+    do
+      sql "ALTER ${zone} CONFIGURE ZONE USING num_replicas = 3"
+    done
