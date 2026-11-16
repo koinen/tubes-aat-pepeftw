@@ -64,9 +64,9 @@ deploy_all() {
 }
 
 health_check() {
-  if [ -z "$KIND_CLUSTER" ]
+  if [ -z "$KIND_CLUSTER" ] && [ "$HEALTH" != true ]
   then
-    echo "health check via hurl runs only on kind, skipping"
+    echo "health check skipped, pass --health once scripts/vm/tunnel.sh is running"
     return 0
   fi
   hurl --test --retry 20 --retry-interval 3000 scripts/demo/00-health.hurl
