@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: |
     Satu-satunya jalur ke Canonical Store. Hanya dipanggil client-api.
-    Selalu membaca dari Postgres dan tidak pernah memanggil BMKG atau PVMBG pada jalur request.
+    Selalu membaca dari CockroachDB dan tidak pernah memanggil BMKG atau PVMBG pada jalur request.
     Mengembalikan HazardEvent lengkap. Penyaringan field per scope dilakukan client-api.
 servers:
   - url: http://localhost:8085
@@ -21,6 +21,7 @@ paths:
         - $ref: './common.yaml#/components/parameters/HazardTypeQuery'
         - $ref: './common.yaml#/components/parameters/Since'
         - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/PageCursor'
       responses:
         '200':
           description: OK
@@ -31,7 +32,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [data, sources]
+                required: [data, sources, next_cursor, partial, unavailable_units]
                 properties:
                   data:
                     type: array
@@ -39,6 +40,16 @@ paths:
                       $ref: './common.yaml#/components/schemas/HazardEvent'
                   sources:
                     $ref: './common.yaml#/components/schemas/SourcesMap'
+                  next_cursor:
+                    type: [string, 'null']
+                    description: null pada halaman terakhir.
+                  partial:
+                    type: boolean
+                    description: true bila sebagian unit penyimpanan tidak terjangkau sehingga daftar bisa belum lengkap.
+                  unavailable_units:
+                    type: array
+                    items:
+                      type: string
         '400':
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
