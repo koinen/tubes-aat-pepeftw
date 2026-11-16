@@ -355,7 +355,7 @@ sh scripts/kind-up.sh
 bash scripts/deploy.sh
 ```
 
-`kind-up.sh` membuat cluster pengembangan kind (1 control plane dan 3 worker). `deploy.sh` membuat Secret dari `.env`, membangun image, memuatnya ke kind, lalu menerapkan manifest bertahap (infra, init, migrate, apps) dan menjalankan health check.
+`kind-up.sh` membuat cluster pengembangan kind (1 control plane dan 4 worker). `deploy.sh` membuat Secret dari `.env`, membangun image, memuatnya ke kind, lalu menerapkan manifest bertahap (infra, init, migrate, apps) dan menjalankan health check.
 
 | Opsi deploy.sh | Fungsi |
 |---|---|
@@ -370,7 +370,7 @@ bash scripts/deploy.sh
 | Path | Isi |
 |---|---|
 | `deploy/base` | Topologi asli untuk cluster demo (CockroachDB 4, Kafka 3, aggregator 3) |
-| `deploy/overlays/dev` | Replika lebih sedikit untuk kind di laptop (CockroachDB 3, Kafka 1) |
+| `deploy/overlays/dev` | Replika lebih sedikit untuk kind di laptop (CockroachDB 4, Kafka 1, aplikasi 1) |
 | `deploy/kind/cluster.yaml` | Konfigurasi cluster kind dan port host 8080 sampai 8085 |
 | `cmd/aggregator/migrations` | Skema SQL, dijalankan oleh Job `aggregator-migrate` (`./aggregator migrate`) |
 
@@ -380,7 +380,7 @@ Setiap pod memiliki label `role` (aggregator, store, broker, consumer, api, mock
 
 | Komponen | Pod (dev) | Requests per pod |
 |---|---|---|
-| CockroachDB | 3 | 512Mi |
+| CockroachDB | 4 | 512Mi |
 | Kafka | 1 | 512Mi |
 | Redis auth-store, client-api-store | 2 | 512Mi |
 | aggregator | 1 | 256Mi |
@@ -388,7 +388,7 @@ Setiap pod memiliki label `role` (aggregator, store, broker, consumer, api, mock
 | notifier, dashboard-updater | 2 | 128Mi |
 | bmkg-mock, pvmbg-mock | 2 | 64Mi |
 
-Pemakaian nyata cluster dev sekitar 3,9 GB, sehingga muat dalam batas WSL 8 GB.
+Pemakaian nyata cluster dev sekitar 5,5 GB, sehingga muat dalam batas WSL 8 GB.
 
 ### Menambah service baru
 
@@ -396,7 +396,7 @@ Pemakaian nyata cluster dev sekitar 3,9 GB, sehingga muat dalam batas WSL 8 GB.
 2. Pod template wajib memiliki label `app`, `role`, serta `bnpb.io/stage: apps`, memory requests dan limits, dan `enableServiceLinks: false`.
 3. Image ditulis `bnpb/<service>:TAG`, lalu tambahkan nama service ke `SERVICES` di `scripts/deploy/images.sh`.
 4. Daftarkan file baru di `deploy/base/kustomization.yaml`.
-5. Migrasi SQL baru diberi nomor berikutnya di `cmd/aggregator/migrations` (nomor `004` dicadangkan untuk lease aggregator).
+5. Migrasi SQL baru diberi nomor berikutnya di `cmd/aggregator/migrations` (nomor `004` dilewati karena leader election memakai Kubernetes Lease, `005` dipakai distribusi data P1).
 
 ### Pindah dari compose Milestone 1
 
@@ -405,3 +405,18 @@ Volume database compose lama berisi data Postgres. Jalankan sekali:
 ```bash
 docker compose down -v
 ```
+
+### P1: Distribusi data CockroachDB
+
+Migrasi `005_p1_distribution.sql` memecah `hazard_events` menjadi 16 range berdasarkan `hazard_id` (UUIDv5, hasil hash dari `source:source_ref_id`) lalu menyebarkannya ke seluruh node. Index waktu dan primary key `outbox` memakai hash-sharded index agar penulisan berurutan tidak menumpuk pada satu range. Dengan 4 node CockroachDB dan replikasi 3, setiap node hanya memegang sekitar 75% data.
+
+| Perintah | Fungsi |
+|---|---|
+| `bash scripts/p1/load-catalog.sh <katalog.csv> [workers]` | Memuat katalog gempa melalui `./aggregator load-catalog` di pod aggregator |
+| `bash scripts/p1/distribution.sh` | Sebaran replika, leaseholder, dan byte `hazard_events` per node |
+| `bash scripts/p1/node-load.sh [sampel] [jeda]` | Beban tulis per node selama pemuatan berlangsung |
+| `bash scripts/p1/spike.sh [jumlah] [wilayah]` | Simulasi lonjakan gempa di satu wilayah sambil mengukur beban per node |
+| `bash scripts/p1/spread.sh <prefix>` | Jumlah baris dengan prefix `source_ref_id` tertentu per node leaseholder, misalnya `catalog-spike` |
+| `go run ./tools/catalog-gen -n 20000 > katalog.csv` | Katalog sintetis yang condong ke jalur megathrust Sunda |
+
+Format katalog adalah CSV dengan header `event_id,time,latitude,longitude,depth_km,magnitude,place`. Waktu memakai ISO 8601 UTC. Setiap baris menjadi HazardEvent `BMKG` bertipe `SEISMIC` dengan `source_ref_id` `catalog-<event_id>`, sehingga pemuatan ulang tidak menggandakan data.

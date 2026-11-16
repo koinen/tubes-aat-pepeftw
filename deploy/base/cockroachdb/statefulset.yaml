@@ -56,12 +56,14 @@ spec:
             - name: http
               containerPort: 8080
           readinessProbe:
+            timeoutSeconds: 3
             httpGet:
               path: /health?ready=1
               port: http
             periodSeconds: 5
             failureThreshold: 2
           livenessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /health
               port: http

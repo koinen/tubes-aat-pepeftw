@@ -42,9 +42,11 @@ spec:
                   name: bnpb-secrets
                   key: REDIS_PASSWORD
           readinessProbe:
+            timeoutSeconds: 3
             tcpSocket:
               port: 6379
           livenessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: 6379
           resources:

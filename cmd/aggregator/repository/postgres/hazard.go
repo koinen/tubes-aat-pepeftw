@@ -54,7 +54,7 @@ func (p *PostgresRepository) SaveHazard(ctx context.Context, h model.HazardEvent
 	}
 
 	var outcome repository.SaveOutcome
-	err = withRetry(ctx, func() error {
+	err = withIdempotentRetry(ctx, func() error {
 		outcome = repository.OutcomeUnchanged
 		return pgx.BeginFunc(ctx, p.pool, func(tx pgx.Tx) error {
 			tag, err := tx.Exec(ctx, insertHazard,
