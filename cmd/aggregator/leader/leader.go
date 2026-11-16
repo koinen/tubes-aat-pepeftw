@@ -13,6 +13,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+
+	"tubes-aat-pepeftw/cmd/aggregator/fence"
 )
 
 type Config struct {
@@ -74,6 +76,7 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger, lead func(context.Co
 
 	for ctx.Err() == nil {
 		var wg sync.WaitGroup
+		runCtx, cancel := context.WithCancel(ctx)
 
 		elector, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
 			Lock: &resourcelock.LeaseLock{
@@ -90,8 +93,15 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger, lead func(context.Co
 				OnStartedLeading: func(c context.Context) {
 					wg.Add(1)
 					defer wg.Done()
-					log.Info("leader_acquired", "identity", cfg.Identity)
-					lead(c)
+
+					epoch, err := currentEpoch(c, client, cfg)
+					if err != nil {
+						log.Error("leader_epoch_failed", "error", err.Error())
+						cancel()
+						return
+					}
+					log.Info("leader_acquired", "identity", cfg.Identity, "epoch", epoch)
+					lead(fence.WithEpoch(c, epoch))
 				},
 				OnStoppedLeading: func() {},
 				OnNewLeader: func(id string) {
@@ -100,16 +110,41 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger, lead func(context.Co
 			},
 		})
 		if err != nil {
+			cancel()
 			return err
 		}
 
-		elector.Run(ctx)
+		elector.Run(runCtx)
+		cancel()
 		wg.Wait()
 		if ctx.Err() == nil {
 			log.Warn("leader_lost", "identity", cfg.Identity)
 		}
 	}
 	return nil
+}
+
+func currentEpoch(ctx context.Context, client kubernetes.Interface, cfg Config) (int64, error) {
+	var last error
+	for i := 0; i < 3; i++ {
+		lease, err := client.CoordinationV1().Leases(cfg.Namespace).Get(ctx, cfg.LeaseName, metav1.GetOptions{})
+		switch {
+		case err != nil:
+			last = err
+		case lease.Spec.HolderIdentity == nil || *lease.Spec.HolderIdentity != cfg.Identity:
+			return 0, errors.New("lease already held by someone else")
+		case lease.Spec.LeaseTransitions == nil:
+			return 0, errors.New("lease has no leaseTransitions")
+		default:
+			return int64(*lease.Spec.LeaseTransitions), nil
+		}
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	return 0, last
 }
 
 func getenv(key, def string) string {
