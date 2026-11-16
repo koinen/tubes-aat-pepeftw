@@ -131,6 +131,9 @@ func buildQuery(c fiber.Ctx) string {
 	if v := c.Query("limit"); v != "" {
 		q.Set("limit", v)
 	}
+	if v := c.Query("cursor"); v != "" {
+		q.Set("cursor", v)
+	}
 	if encoded := q.Encode(); encoded != "" {
 		return "?" + encoded
 	}

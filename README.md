@@ -420,3 +420,27 @@ Migrasi `005_p1_distribution.sql` memecah `hazard_events` menjadi 16 range berda
 | `go run ./tools/catalog-gen -n 20000 > katalog.csv` | Katalog sintetis yang condong ke jalur megathrust Sunda |
 
 Format katalog adalah CSV dengan header `event_id,time,latitude,longitude,depth_km,magnitude,place`. Waktu memakai ISO 8601 UTC. Setiap baris menjadi HazardEvent `BMKG` bertipe `SEISMIC` dengan `source_ref_id` `catalog-<event_id>`, sehingga pemuatan ulang tidak menggandakan data.
+
+### P1: Pembacaan lintas shard dan Audit API
+
+Data `hazard_events` dibagi menjadi 16 unit penyimpanan, `shard-0` sampai `shard-f`, menurut digit hex pertama `hazard_id`. Daftar hazard memakai cursor keyset `(ingested_at, hazard_id)` sehingga urutan tetap benar di seluruh halaman. Bila query cepat melewati 1,5 detik, aggregator membaca ke-16 shard secara paralel (2 detik per shard, satu snapshot `AS OF SYSTEM TIME`). Shard yang tidak menjawab dicantumkan pada `unavailable_units` dan respons diberi `partial: true`, bukan error 500.
+
+| Endpoint | Fungsi |
+|---|---|
+| `GET /internal/audit/events?source&since&limit&cursor` | Seluruh HazardEvent, urut naik menurut `ingested_at` lalu `hazard_id` |
+| `GET /internal/audit/checksum?source` | Jumlah record dan SHA-256 atas `source_ref_id` |
+| `GET /internal/audit/location?hazard_id` | Node primary dan replica tempat HazardEvent disimpan |
+| `GET /internal/audit/unprocessed?source&limit&cursor` | Pesan berstatus `retrying` atau `parked` |
+
+Audit API memakai header `Authorization: Bearer <AUDIT_TOKEN>`. Token disimpan di `.env` lalu dimuat `deploy.sh` ke Secret `bnpb-secrets`. Kontraknya ada di `api/audit.yaml`.
+
+```bash
+bash scripts/p1/audit.sh checksum BMKG
+```
+
+| Variabel | Bawaan | Fungsi |
+|---|---|---|
+| `AUDIT_TOKEN` | kosong | Token Audit API, tanpa nilai ini seluruh permintaan audit ditolak |
+| `READ_FAST_TIMEOUT` | `1500ms` | Batas query cepat daftar hazard sebelum beralih ke pembacaan per shard |
+| `READ_SHARD_TIMEOUT` | `2s` | Batas waktu tiap shard sebelum dianggap tidak terjangkau |
+| `DB_POOL_MAX_CONNS` | `24` | Jumlah koneksi database per pod aggregator, cukup untuk 16 query shard paralel |

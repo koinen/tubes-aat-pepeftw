@@ -21,6 +21,7 @@ paths:
         - $ref: './common.yaml#/components/parameters/HazardTypeQuery'
         - $ref: './common.yaml#/components/parameters/Since'
         - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/PageCursor'
         - $ref: '#/components/parameters/Fields'
       responses:
         '200':
@@ -32,7 +33,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [data, sources]
+                required: [data, sources, next_cursor, partial, unavailable_units]
                 properties:
                   data:
                     type: array
@@ -40,6 +41,16 @@ paths:
                       $ref: '#/components/schemas/HazardView'
                   sources:
                     $ref: './common.yaml#/components/schemas/SourcesMap'
+                  next_cursor:
+                    type: [string, 'null']
+                    description: null pada halaman terakhir.
+                  partial:
+                    type: boolean
+                    description: true bila sebagian unit penyimpanan tidak terjangkau sehingga daftar bisa belum lengkap.
+                  unavailable_units:
+                    type: array
+                    items:
+                      type: string
         '400':
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
