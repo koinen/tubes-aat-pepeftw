@@ -15,6 +15,7 @@ type Deps struct {
 	Hazards      repository.HazardReader
 	Statuses     repository.SourceStatusRepository
 	Audit        repository.AuditReader
+	Analytics    repository.AnalyticsReader
 	PostgresPing func(context.Context) error
 	KafkaPing    func(context.Context) error
 	InternalKey  string
@@ -23,15 +24,16 @@ type Deps struct {
 }
 
 type handlers struct {
-	hazards  repository.HazardReader
-	statuses repository.SourceStatusRepository
-	audit    repository.AuditReader
+	hazards       repository.HazardReader
+	statuses      repository.SourceStatusRepository
+	audit         repository.AuditReader
+	analyticsRepo repository.AnalyticsReader
 }
 
 func New(d Deps) *fiber.App {
 	onError := errorHandler(d.Log)
 	app := fiber.New(fiber.Config{ErrorHandler: onError})
-	h := handlers{hazards: d.Hazards, statuses: d.Statuses, audit: d.Audit}
+	h := handlers{hazards: d.Hazards, statuses: d.Statuses, audit: d.Audit, analyticsRepo: d.Analytics}
 
 	app.Use(correlationID, requestLogger(d.Log, onError), recoverer.New())
 	app.Get("/health", health(d.PostgresPing, d.KafkaPing))
@@ -46,6 +48,7 @@ func New(d Deps) *fiber.App {
 	app.Get("/internal/hazards", internalKey, h.listHazards)
 	app.Get("/internal/hazards/:hazard_id", internalKey, h.getHazard)
 	app.Get("/internal/sources/status", internalKey, h.sourcesStatus)
+	app.Get("/internal/analytics", internalKey, h.analytics)
 
 	return app
 }

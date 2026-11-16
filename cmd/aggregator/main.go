@@ -128,6 +128,7 @@ func run(log *slog.Logger) error {
 		Hazards:      repo,
 		Statuses:     repo,
 		Audit:        repo,
+		Analytics:    repo,
 		PostgresPing: pool.Ping,
 		KafkaPing:    producer.Ping,
 		InternalKey:  cfg.InternalAPIKey,
