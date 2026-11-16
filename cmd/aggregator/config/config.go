@@ -17,10 +17,13 @@ type Config struct {
 	KafkaBrokers   []string
 	HazardTopic    string
 	RelayInterval  time.Duration
+	AuditToken     string
+	FastRead       time.Duration
+	ShardRead      time.Duration
 }
 
 func Load() (Config, error) {
-	dbURL, err := databaseURL()
+	dbURL, err := DatabaseURL()
 	if err != nil {
 		return Config{}, err
 	}
@@ -30,6 +33,15 @@ func Load() (Config, error) {
 		return Config{}, errors.New("RELAY_INTERVAL must be a positive duration such as 1s or 500ms")
 	}
 
+	fastRead, err := positiveDuration("READ_FAST_TIMEOUT", "1500ms")
+	if err != nil {
+		return Config{}, err
+	}
+	shardRead, err := positiveDuration("READ_SHARD_TIMEOUT", "2s")
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Port:           getenv("PORT", "8080"),
 		InternalAPIKey: os.Getenv("INTERNAL_API_KEY"),
@@ -37,6 +49,9 @@ func Load() (Config, error) {
 		KafkaBrokers:   splitList(os.Getenv("KAFKA_BROKERS")),
 		HazardTopic:    getenv("KAFKA_TOPIC_HAZARD_EVENTS", "hazard-events"),
 		RelayInterval:  interval,
+		AuditToken:     os.Getenv("AUDIT_TOKEN"),
+		FastRead:       fastRead,
+		ShardRead:      shardRead,
 	}
 
 	if cfg.InternalAPIKey == "" {
@@ -49,6 +64,14 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
+func positiveDuration(key, fallback string) (time.Duration, error) {
+	d, err := time.ParseDuration(getenv(key, fallback))
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration such as %s", key, fallback)
+	}
+	return d, nil
+}
+
 func splitList(s string) []string {
 	var out []string
 	for _, part := range strings.Split(s, ",") {
@@ -59,19 +82,25 @@ func splitList(s string) []string {
 	return out
 }
 
-func databaseURL() (string, error) {
+func DatabaseURL() (string, error) {
 	for _, key := range []string{"DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"} {
 		if os.Getenv(key) == "" {
 			return "", fmt.Errorf("%s is required", key)
 		}
 	}
 
+	query := url.Values{}
+	query.Set("sslmode", "disable")
+	query.Set("pool_max_conn_lifetime", getenv("DB_POOL_MAX_CONN_LIFETIME", "5m"))
+	query.Set("pool_health_check_period", getenv("DB_POOL_HEALTH_CHECK_PERIOD", "15s"))
+	query.Set("pool_max_conns", getenv("DB_POOL_MAX_CONNS", "24"))
+
 	u := url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(os.Getenv("DB_USER"), os.Getenv("DB_PASSWORD")),
-		Host:     net.JoinHostPort(os.Getenv("DB_HOST"), getenv("DB_PORT", "5432")),
+		Host:     net.JoinHostPort(os.Getenv("DB_HOST"), getenv("DB_PORT", "26257")),
 		Path:     "/" + os.Getenv("DB_NAME"),
-		RawQuery: "sslmode=disable",
+		RawQuery: query.Encode(),
 	}
 	return u.String(), nil
 }

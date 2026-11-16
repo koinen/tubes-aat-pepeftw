@@ -45,7 +45,7 @@ func main() {
 
 	// handlers
 	healthHandler := health.NewHealthHandler()
-	tokenHandler, err := token.NewTokenHandler(config.Token, redisClient, kafkaClient, logger)
+	tokenHandler, err := token.NewTokenHandler(config.Token, redisClient, kafkaClient, config.Kafka.Topic, logger)
 	if err != nil {
 		log.Fatal("Failed to init token handler:", err)
 	}

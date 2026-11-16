@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggregator
+  labels:
+    app: aggregator
+    bnpb.io/stage: apps
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: aggregator
+  template:
+    metadata:
+      labels:
+        app: aggregator
+        role: aggregator
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: aggregator
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: aggregator
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+      containers:
+        - name: aggregator
+          image: bnpb/aggregator:TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: aggregator-config
+            - configMapRef:
+                name: bnpb-common
+          env:
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: INTERNAL_API_KEY
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: DB_PASSWORD
+            - name: BMKG_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: BMKG_API_KEY
+            - name: PVMBG_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: PVMBG_TOKEN
+            - name: AUDIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: AUDIT_TOKEN
+                  optional: true
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          readinessProbe:
+            timeoutSeconds: 3
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 512Mi

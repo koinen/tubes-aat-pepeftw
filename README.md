@@ -18,6 +18,7 @@ Sistem ini mengambil data gempa dari BMKG dan data gunung api dari PVMBG, menyer
 10. [Struktur Repositori](#10-struktur-repositori)
 11. [Troubleshooting](#11-troubleshooting)
 12. [Anggota Kelompok](#12-anggota-kelompok)
+13. [Milestone 2: Kubernetes](#13-milestone-2-kubernetes)
 
 ## 1. Arsitektur Singkat
 
@@ -339,3 +340,155 @@ Kelompok **pepeftw**
 | 1 | Peter Wongsoredjo | 13523039 |
 | 2 | Jessica Allen | 13523059 |
 | 3 | David Bakti Lodianto | 13523083 |
+
+## 13. Milestone 2: Kubernetes
+
+Mulai Milestone 2 seluruh komponen berjalan di Kubernetes pada namespace `sistem-informasi-kebencanaan-bnpb`. Penyimpanan kanonik aggregator memakai CockroachDB v24.2.4 (versi terakhir yang tidak memerlukan license key). Docker compose tetap tersedia untuk pengembangan cepat dengan CockroachDB single-node.
+
+### Deploy dengan satu perintah
+
+```bash
+sh scripts/kind-up.sh
+```
+
+```bash
+bash scripts/deploy.sh
+```
+
+`kind-up.sh` membuat cluster pengembangan kind (1 control plane dan 5 worker, satu worker cadangan untuk uji node baru). `deploy.sh` membuat Secret dari `.env`, membangun image, memuatnya ke kind, lalu menerapkan manifest bertahap (infra, init, migrate, apps) dan menjalankan health check.
+
+| Opsi deploy.sh | Fungsi |
+|---|---|
+| `--overlay <nama>` | Overlay di `deploy/overlays` (bawaan `dev`) |
+| `--registry <prefix>` | Push ke registry, misalnya `ghcr.io/<owner>/`, bukan kind |
+| `--tag <tag> --no-build` | Pakai image yang sudah ada |
+| `--only <service>` | Build ulang dan rollout satu service saja |
+| `--fresh` | Hapus namespace beserta datanya lalu deploy dari awal |
+
+### Deploy ke cluster VM (demo)
+
+kind hanya untuk pengembangan. Demo berjalan di k3s pada VM dengan kernel terpisah. Langkah lengkap ada di [docs/vm-cluster.md](docs/vm-cluster.md).
+
+```bash
+bash scripts/deploy.sh --overlay vm --registry ghcr.io/koinen/
+```
+
+### Deklarasi topologi
+
+| Node | Jenis | Host fisik | CPU host | RAM host | Peran |
+|---|---|---|---|---|---|
+| `node-a` | VM VirtualBox | (isi saat demo) | (isi) | (isi) | control plane dan worker |
+| `node-b` | VM VirtualBox | (isi saat demo) | (isi) | (isi) | worker |
+| `node-c` | VM VirtualBox | (isi saat demo) | (isi) | (isi) | worker |
+| `node-d` | VM VirtualBox | (isi saat demo) | (isi) | (isi) | worker |
+
+Setiap node menjalankan satu pod CockroachDB. Skenario mematikan node hanya dikenakan pada node worker non-control-plane.
+
+### Struktur manifest
+
+| Path | Isi |
+|---|---|
+| `deploy/base` | Topologi asli untuk cluster demo (CockroachDB 4, Kafka 3, aggregator 3) |
+| `deploy/overlays/vm` | Cluster VM k3s (CockroachDB 4, aggregator 3, Kafka 1, image dari GHCR) |
+| `deploy/overlays/dev` | Replika lebih sedikit untuk kind di laptop (CockroachDB 4, Kafka 1, aplikasi 1) |
+| `deploy/kind/cluster.yaml` | Konfigurasi cluster kind dan port host 8080 sampai 8085 |
+| `cmd/aggregator/migrations` | Skema SQL, dijalankan oleh Job `aggregator-migrate` (`./aggregator migrate`) |
+
+Setiap pod memiliki label `role` (aggregator, store, broker, consumer, api, mock, sensor, other) serta `resources.requests` dan `resources.limits` sesuai Lampiran B. Kredensial berada di Secret `bnpb-secrets` dan `auth-keys`, konfigurasi di ConfigMap. NetworkPolicy memastikan CockroachDB hanya dapat dijangkau aggregator, `auth-store` hanya oleh auth, dan `client-api-store` hanya oleh client-api.
+
+### Anggaran memori (requests)
+
+| Komponen | Pod (dev) | Requests per pod |
+|---|---|---|
+| CockroachDB | 4 | 512Mi |
+| Kafka | 1 | 512Mi |
+| Redis auth-store, client-api-store | 2 | 512Mi |
+| aggregator | 1 | 256Mi |
+| auth, client-api | 2 | 128Mi |
+| notifier, dashboard-updater | 2 | 128Mi |
+| bmkg-mock, pvmbg-mock | 2 | 64Mi |
+
+Pemakaian nyata cluster dev sekitar 5,5 GB, sehingga muat dalam batas WSL 8 GB.
+
+### Menambah service baru
+
+1. Buat folder `deploy/base/<service>/` berisi `configmap.yaml`, `deployment.yaml`, dan `service.yaml` mengikuti service yang sudah ada.
+2. Pod template wajib memiliki label `app`, `role`, serta `bnpb.io/stage: apps`, memory requests dan limits, dan `enableServiceLinks: false`.
+3. Image ditulis `bnpb/<service>:TAG`, lalu tambahkan nama service ke `SERVICES` di `scripts/deploy/images.sh`.
+4. Daftarkan file baru di `deploy/base/kustomization.yaml`.
+5. Migrasi SQL baru diberi nomor berikutnya di `cmd/aggregator/migrations` (nomor `004` dilewati karena leader election memakai Kubernetes Lease, `005` dipakai distribusi data P1).
+
+### Pindah dari compose Milestone 1
+
+Volume database compose lama berisi data Postgres. Jalankan sekali:
+
+```bash
+docker compose down -v
+```
+
+### P1: Distribusi data CockroachDB
+
+Migrasi `005_p1_distribution.sql` memecah `hazard_events` menjadi 16 range berdasarkan `hazard_id` (UUIDv5, hasil hash dari `source:source_ref_id`) lalu menyebarkannya ke seluruh node. Index waktu dan primary key `outbox` memakai hash-sharded index agar penulisan berurutan tidak menumpuk pada satu range. Dengan 4 node CockroachDB dan replikasi 3, setiap node hanya memegang sekitar 75% data.
+
+| Perintah | Fungsi |
+|---|---|
+| `bash scripts/p1/load-catalog.sh <katalog.csv> [workers]` | Memuat katalog gempa melalui `./aggregator load-catalog` di pod aggregator |
+| `bash scripts/p1/distribution.sh` | Sebaran replika, leaseholder, dan byte `hazard_events` per node |
+| `bash scripts/p1/node-load.sh [sampel] [jeda]` | Beban tulis per node selama pemuatan berlangsung |
+| `bash scripts/p1/spike.sh [jumlah] [wilayah]` | Simulasi lonjakan gempa di satu wilayah sambil mengukur beban per node |
+| `bash scripts/p1/spread.sh <prefix>` | Jumlah baris dengan prefix `source_ref_id` tertentu per node leaseholder, misalnya `catalog-spike` |
+| `go run ./tools/catalog-gen -n 20000 > katalog.csv` | Katalog sintetis yang condong ke jalur megathrust Sunda |
+
+Format katalog adalah CSV dengan header `event_id,time,latitude,longitude,depth_km,magnitude,place`. Waktu memakai ISO 8601 UTC. Setiap baris menjadi HazardEvent `BMKG` bertipe `SEISMIC` dengan `source_ref_id` `catalog-<event_id>`, sehingga pemuatan ulang tidak menggandakan data.
+
+### P1: Pembacaan lintas shard dan Audit API
+
+Data `hazard_events` dibagi menjadi 16 unit penyimpanan, `shard-0` sampai `shard-f`, menurut digit hex pertama `hazard_id`. Daftar hazard memakai cursor keyset `(ingested_at, hazard_id)` sehingga urutan tetap benar di seluruh halaman. Bila query cepat melewati 1,5 detik, aggregator membaca ke-16 shard secara paralel (2 detik per shard, satu snapshot `AS OF SYSTEM TIME`). Shard yang tidak menjawab dicantumkan pada `unavailable_units` dan respons diberi `partial: true`, bukan error 500.
+
+| Endpoint | Fungsi |
+|---|---|
+| `GET /internal/audit/events?source&since&limit&cursor` | Seluruh HazardEvent, urut naik menurut `ingested_at` lalu `hazard_id` |
+| `GET /internal/audit/checksum?source` | Jumlah record dan SHA-256 atas `source_ref_id` |
+| `GET /internal/audit/location?hazard_id` | Node primary dan replica tempat HazardEvent disimpan |
+| `GET /internal/audit/unprocessed?source&limit&cursor` | Pesan berstatus `retrying` atau `parked` |
+
+Audit API memakai header `Authorization: Bearer <AUDIT_TOKEN>`. Token disimpan di `.env` lalu dimuat `deploy.sh` ke Secret `bnpb-secrets`. Kontraknya ada di `api/audit.yaml`.
+
+```bash
+bash scripts/p1/audit.sh checksum BMKG
+```
+
+| Variabel | Bawaan | Fungsi |
+|---|---|---|
+| `AUDIT_TOKEN` | kosong | Token Audit API, tanpa nilai ini seluruh permintaan audit ditolak |
+| `READ_FAST_TIMEOUT` | `1500ms` | Batas query cepat daftar hazard sebelum beralih ke pembacaan per shard |
+| `READ_SHARD_TIMEOUT` | `2s` | Batas waktu tiap shard sebelum dianggap tidak terjangkau |
+| `DB_POOL_MAX_CONNS` | `24` | Jumlah koneksi database per pod aggregator, cukup untuk 16 query shard paralel |
+
+### P1: Node hilang, node baru, dan pemulihan
+
+CockroachDB menyimpan 3 replika setiap range pada node yang berbeda. Bila satu node hilang, setiap range masih punya mayoritas sehingga baca dan tulis tetap berjalan. Setelah 75 detik node dianggap mati (`server.time_until_store_dead`) dan replika yang kurang dibuat ulang di node lain. Zona sistem (`meta`, `liveness`, `system`) juga memakai 3 replika agar status pemulihan bisa mencapai nol pada cluster 4 node.
+
+| Skenario | Perintah |
+|---|---|
+| Lihat node, range kurang replika, dan range tidak tersedia | `bash scripts/p1/recovery-status.sh` |
+| Tunggu sampai replikasi pulih penuh | `bash scripts/p1/recovery-status.sh --wait` |
+| Simulasi node hilang beserta disknya (kind) | `bash scripts/p1/lose-node.sh <node>` |
+| Node yang sama kembali dengan disk kosong | nyalakan lagi node itu lalu `bash scripts/p1/decommission-dead.sh` |
+| Ganti node yang hilang permanen dengan node baru | `bash scripts/p1/replace-node.sh <node yang hilang>` |
+
+`replace-node.sh` diperlukan karena volume local-path terikat pada node asalnya. Skrip menghapus objek node yang hilang, melepas PVC pod CockroachDB yang tinggal di sana sehingga pod pindah ke node kosong dengan disk baru, lalu men-decommission node CockroachDB yang mati. Pada VM, node dimatikan oleh Tester Agent atau dengan mematikan VM, lalu langkah pemulihannya sama.
+
+### P1: Dashboard analitik
+
+Service `analytics-dashboard` menyajikan halaman analitik di port `8086` (NodePort `30086`). Halaman memuat line chart jumlah kejadian per jenis bahaya dengan pilihan rentang waktu, jumlah per severity, dan tabel per wilayah. Angka dihitung aggregator lintas 16 unit penyimpanan pada satu snapshot (`GET /internal/analytics`), sehingga sama dengan hitungan langsung dari Audit API `events`.
+
+| Kategori | Aturan |
+|---|---|
+| Gempa | `SEISMIC` tanpa peringatan tsunami |
+| Tsunami | `SEISMIC` yang memiliki `attributes.tsunami_warnings` |
+| Gunung berapi | `VOLCANIC` |
+| Kebakaran hutan | `WILDFIRE` |
+| Pesisir | `COASTAL` |
+
+Bila sebagian unit tidak terjangkau, halaman tetap tampil, setiap angka diberi tanda `*`, dan banner menyebut unit yang hilang. Cluster kind yang dibuat sebelum port `8086` ditambahkan dapat memakai `kubectl -n sistem-informasi-kebencanaan-bnpb port-forward svc/analytics-dashboard 8086:8080`.

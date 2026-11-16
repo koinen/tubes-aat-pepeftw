@@ -1,0 +1,51 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sistem-informasi-kebencanaan-bnpb
+resources:
+  - namespace.yaml
+  - common/configmap.yaml
+  - kafka/configmap.yaml
+  - kafka/scripts.yaml
+  - kafka/services.yaml
+  - kafka/statefulset.yaml
+  - kafka/job-topics.yaml
+  - cockroachdb/scripts.yaml
+  - cockroachdb/services.yaml
+  - cockroachdb/statefulset.yaml
+  - cockroachdb/job-init.yaml
+  - auth-store/deployment.yaml
+  - auth-store/service.yaml
+  - client-api-store/deployment.yaml
+  - client-api-store/service.yaml
+  - networkpolicy/crdb.yaml
+  - networkpolicy/auth-store.yaml
+  - networkpolicy/client-api-store.yaml
+  - aggregator/rbac.yaml
+  - aggregator/configmap.yaml
+  - aggregator/job-migrate.yaml
+  - aggregator/deployment.yaml
+  - aggregator/service.yaml
+  - auth/configmap.yaml
+  - auth/deployment.yaml
+  - auth/service.yaml
+  - client-api/configmap.yaml
+  - client-api/deployment.yaml
+  - client-api/service.yaml
+  - notifier/configmap.yaml
+  - notifier/deployment.yaml
+  - notifier/service.yaml
+  - audit-log/configmap.yaml
+  - audit-log/deployment.yaml
+  - audit-log/service.yaml
+  - dashboard-updater/configmap.yaml
+  - dashboard-updater/deployment.yaml
+  - dashboard-updater/service.yaml
+  - analytics-dashboard/configmap.yaml
+  - analytics-dashboard/deployment.yaml
+  - analytics-dashboard/service.yaml
+  - bmkg-mock/configmap.yaml
+  - bmkg-mock/deployment.yaml
+  - bmkg-mock/service.yaml
+  - pvmbg-mock/configmap.yaml
+  - pvmbg-mock/deployment.yaml
+  - pvmbg-mock/service.yaml

@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analitik Bencana</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --surface: #f5f5f7; --text: #1d1d1f; --muted: #6e6e73; --hairline: #d2d2d7;
+    --accent: #0071e3; --good: #34c759; --warn: #ff9f0a; --warn-soft: #fff4e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000; --surface: #1c1c1e; --text: #f5f5f7; --muted: #8e8e93; --hairline: #38383a;
+      --accent: #2997ff; --good: #30d158; --warn: #ff9f0a; --warn-soft: #2c2111;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 56px 22px 80px; }
+  .eyebrow { color: var(--muted); font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+  h1 { font-size: clamp(36px, 6vw, 56px); line-height: 1.05; letter-spacing: -0.035em; margin: 0; font-weight: 700; }
+  .lede { color: var(--muted); font-size: 19px; line-height: 1.4; margin: 12px 0 32px; max-width: 560px; }
+
+  .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 40px; }
+  .segmented { display: inline-flex; background: var(--surface); border-radius: 999px; padding: 3px; }
+  .segmented button {
+    border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px;
+    padding: 7px 16px; border-radius: 999px; cursor: pointer; transition: background .2s, box-shadow .2s;
+  }
+  .segmented button.active { background: var(--bg); box-shadow: 0 1px 4px rgba(0, 0, 0, .12); font-weight: 600; }
+  .status { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+  .status.incomplete .dot { background: var(--warn); }
+
+  .notice {
+    display: none; background: var(--warn-soft); border-radius: 14px; padding: 14px 18px;
+    font-size: 15px; line-height: 1.45; margin: -16px 0 36px;
+  }
+  .notice.show { display: block; }
+  .notice strong { display: block; margin-bottom: 2px; }
+  .notice span { color: var(--muted); }
+
+  .hero { padding-bottom: 36px; border-bottom: 1px solid var(--hairline); }
+  .hero .total { font-size: clamp(56px, 10vw, 96px); font-weight: 700; letter-spacing: -0.045em; line-height: 1; }
+  .hero .caption { color: var(--muted); font-size: 17px; margin-top: 8px; }
+  .mark { color: var(--warn); }
+
+  .categories { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 32px; }
+  .category { padding: 0 18px; border-left: 1px solid var(--hairline); }
+  .category:first-child { padding-left: 0; border-left: 0; }
+  .category .name { display: flex; align-items: center; gap: 7px; font-size: 14px; color: var(--muted); }
+  .category .swatch { width: 8px; height: 8px; border-radius: 50%; }
+  .category .count { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin-top: 6px; }
+  @media (max-width: 720px) {
+    .categories { grid-template-columns: repeat(2, 1fr); row-gap: 22px; }
+    .category, .category:first-child { padding: 0; border-left: 0; }
+  }
+
+  section { padding: 48px 0 0; }
+  h2 { font-size: 28px; letter-spacing: -0.025em; margin: 0 0 6px; font-weight: 700; }
+  .section-lede { color: var(--muted); font-size: 15px; margin: 0 0 22px; }
+  .chart { position: relative; height: 320px; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; }
+  @media (max-width: 720px) { .split { grid-template-columns: 1fr; gap: 0; } }
+
+  .bars { list-style: none; margin: 0; padding: 0; }
+  .bars li { padding: 12px 0; border-bottom: 1px solid var(--hairline); }
+  .bars .row { display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 8px; }
+  .bars .row b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .track { height: 6px; background: var(--surface); border-radius: 3px; overflow: hidden; }
+  .fill { height: 100%; border-radius: 3px; transition: width .5s ease; }
+
+  .areas { list-style: none; margin: 0; padding: 0; }
+  .areas li { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--hairline); font-size: 15px; }
+  .areas li b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .areas .empty { color: var(--muted); }
+  .more { border: 0; background: none; color: var(--accent); font: inherit; font-size: 15px; padding: 14px 0 0; cursor: pointer; }
+  .more:hover { text-decoration: underline; }
+
+  footer { margin-top: 56px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">BNPB</p>
+  <h1>Aktivitas bencana.</h1>
+  <p class="lede">Seluruh kejadian dari setiap sumber, dihitung langsung dari semua lokasi penyimpanan.</p>
+
+  <div class="controls">
+    <div class="segmented" id="ranges"></div>
+    <div class="status" id="status"><span class="dot"></span><span id="status-text">Memuat</span></div>
+  </div>
+
+  <div class="notice" id="notice"></div>
+
+  <div class="hero">
+    <div class="total" id="total">0</div>
+    <div class="caption" id="caption">kejadian</div>
+    <div class="categories" id="categories"></div>
+  </div>
+
+  <section>
+    <h2>Dari waktu ke waktu.</h2>
+    <p class="section-lede">Jumlah kejadian per jenis bahaya.</p>
+    <div class="chart"><canvas id="series"></canvas></div>
+  </section>
+
+  <div class="split">
+    <section>
+      <h2>Tingkat severity.</h2>
+      <p class="section-lede">Sebaran kejadian menurut status.</p>
+      <ul class="bars" id="severity"></ul>
+    </section>
+    <section>
+      <h2>Wilayah.</h2>
+      <p class="section-lede">Diurutkan dari yang paling banyak.</p>
+      <ul class="areas" id="areas"></ul>
+      <button class="more" id="more" hidden></button>
+    </section>
+  </div>
+
+  <footer id="footer"></footer>
+</main>
+<script>
+const CATEGORIES = [
+  ["SEISMIC", "Gempa", "#0071e3"],
+  ["TSUNAMI", "Tsunami", "#30b0c7"],
+  ["VOLCANIC", "Gunung berapi", "#ff6b35"],
+  ["WILDFIRE", "Kebakaran hutan", "#ffb800"],
+  ["COASTAL", "Pesisir", "#34c759"],
+];
+const SEVERITY = [
+  ["NORMAL", "Normal", "#8e8e93"],
+  ["WASPADA", "Waspada", "#ffb800"],
+  ["SIAGA", "Siaga", "#ff8a00"],
+  ["AWAS", "Awas", "#ff3b30"],
+];
+const RANGES = [
+  ["24 jam", 1, "hour"],
+  ["7 hari", 7, "day"],
+  ["30 hari", 30, "day"],
+  ["1 tahun", 365, "month"],
+  ["Semua", null, "year"],
+];
+const fmt = new Intl.NumberFormat("id-ID");
+const AREA_PREVIEW = 10;
+let current = 2;
+let chart;
+let showAllAreas = false;
+let lastData;
+
+function css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function rangeParams() {
+  const [, days, bucket] = RANGES[current];
+  const to = new Date();
+  const from = days === null ? new Date(Date.UTC(1970, 0, 1)) : new Date(to.getTime() - days * 86400000);
+  return { from: from.toISOString().slice(0, 19) + "Z", to: to.toISOString().slice(0, 19) + "Z", bucket };
+}
+
+function truncate(d, bucket) {
+  const t = new Date(d);
+  if (bucket === "hour") t.setUTCMinutes(0, 0, 0);
+  if (bucket === "day") t.setUTCHours(0, 0, 0, 0);
+  if (bucket === "month") { t.setUTCDate(1); t.setUTCHours(0, 0, 0, 0); }
+  if (bucket === "year") { t.setUTCMonth(0, 1); t.setUTCHours(0, 0, 0, 0); }
+  return t;
+}
+
+function step(t, bucket) {
+  const n = new Date(t);
+  if (bucket === "hour") n.setUTCHours(n.getUTCHours() + 1);
+  if (bucket === "day") n.setUTCDate(n.getUTCDate() + 1);
+  if (bucket === "month") n.setUTCMonth(n.getUTCMonth() + 1);
+  if (bucket === "year") n.setUTCFullYear(n.getUTCFullYear() + 1);
+  return n;
+}
+
+function label(t, bucket) {
+  const opts = { timeZone: "UTC" };
+  if (bucket === "hour") return t.toLocaleString("id-ID", { ...opts, hour: "2-digit", minute: "2-digit" });
+  if (bucket === "day") return t.toLocaleDateString("id-ID", { ...opts, day: "numeric", month: "short" });
+  if (bucket === "month") return t.toLocaleDateString("id-ID", { ...opts, month: "short", year: "2-digit" });
+  return String(t.getUTCFullYear());
+}
+
+function axis(data) {
+  const keys = data.series.map(p => new Date(p.bucket).getTime());
+  let start = truncate(new Date(data.from), data.bucket);
+  if (data.bucket === "year" && keys.length) start = new Date(Math.min(...keys));
+  const out = [];
+  for (let t = start; t <= new Date(data.to); t = step(t, data.bucket)) out.push(t);
+  return out;
+}
+
+function escape(s) {
+  return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function renderStatus(data) {
+  const status = document.getElementById("status");
+  const text = document.getElementById("status-text");
+  const notice = document.getElementById("notice");
+  if (data.partial) {
+    status.className = "status incomplete";
+    text.textContent = `${data.unavailable_units.length} dari 16 unit tidak terjangkau`;
+    notice.className = "notice show";
+    notice.innerHTML = `<strong>Angka belum lengkap.</strong><span>Sebagian lokasi penyimpanan sedang tidak terjangkau, sehingga angka bertanda * bisa lebih kecil dari seharusnya. Unit: ${data.unavailable_units.join(", ")}.</span>`;
+  } else {
+    status.className = "status";
+    text.textContent = "Seluruh 16 unit terjangkau";
+    notice.className = "notice";
+  }
+}
+
+function renderHero(data) {
+  const mark = data.partial ? `<span class="mark">*</span>` : "";
+  const totals = Object.fromEntries(CATEGORIES.map(([k]) => [k, 0]));
+  data.series.forEach(p => { totals[p.category] = (totals[p.category] || 0) + p.count; });
+  document.getElementById("total").innerHTML = fmt.format(data.total) + mark;
+  document.getElementById("caption").textContent = `kejadian, ${RANGES[current][0].toLowerCase()} terakhir`;
+  if (RANGES[current][1] === null) document.getElementById("caption").textContent = "kejadian sepanjang waktu";
+  document.getElementById("categories").innerHTML = CATEGORIES.map(([k, name, color]) =>
+    `<div class="category"><div class="name"><span class="swatch" style="background:${color}"></span>${name}</div>` +
+    `<div class="count">${fmt.format(totals[k])}${mark}</div></div>`).join("");
+}
+
+function renderChart(data) {
+  const points = axis(data);
+  const index = new Map(points.map((t, i) => [t.getTime(), i]));
+  const datasets = CATEGORIES.map(([k, name, color]) => {
+    const values = new Array(points.length).fill(0);
+    data.series.filter(p => p.category === k).forEach(p => {
+      const i = index.get(new Date(p.bucket).getTime());
+      if (i !== undefined) values[i] = p.count;
+    });
+    return {
+      label: name, data: values, borderColor: color, backgroundColor: color,
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.35, fill: false,
+    };
+  });
+  const labels = points.map(t => label(t, data.bucket));
+  if (chart) {
+    chart.data.labels = labels;
+    chart.data.datasets = datasets;
+    chart.update();
+    return;
+  }
+  chart = new Chart(document.getElementById("series"), {
+    type: "line",
+    data: { labels, datasets },
+    options: {
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: css("--surface"), titleColor: css("--text"), bodyColor: css("--text"),
+          borderColor: css("--hairline"), borderWidth: 1, padding: 12, cornerRadius: 12, boxPadding: 4,
+          usePointStyle: true,
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, border: { display: false }, ticks: { color: css("--muted"), maxTicksLimit: 8, maxRotation: 0 } },
+        y: {
+          beginAtZero: true, border: { display: false },
+          grid: { color: css("--hairline"), drawTicks: false },
+          ticks: { color: css("--muted"), precision: 0, padding: 10, maxTicksLimit: 5, callback: v => fmt.format(v) },
+        },
+      },
+    },
+  });
+}
+
+function renderSeverity(data) {
+  const counts = Object.fromEntries(data.by_severity.map(s => [s.name, s.count]));
+  const max = Math.max(1, ...Object.values(counts));
+  const mark = data.partial ? "*" : "";
+  document.getElementById("severity").innerHTML = SEVERITY.map(([k, name, color]) => {
+    const n = counts[k] || 0;
+    return `<li><div class="row"><span>${name}</span><b>${fmt.format(n)}${mark}</b></div>` +
+      `<div class="track"><div class="fill" style="width:${(n / max) * 100}%;background:${color}"></div></div></li>`;
+  }).join("");
+}
+
+function renderAreas(data) {
+  const mark = data.partial ? "*" : "";
+  const list = document.getElementById("areas");
+  const more = document.getElementById("more");
+  if (!data.by_area.length) {
+    list.innerHTML = `<li class="empty">Belum ada kejadian pada rentang ini.</li>`;
+    more.hidden = true;
+    return;
+  }
+  const shown = showAllAreas ? data.by_area : data.by_area.slice(0, AREA_PREVIEW);
+  list.innerHTML = shown.map(a => `<li><span>${escape(a.name)}</span><b>${fmt.format(a.count)}${mark}</b></li>`).join("");
+  more.hidden = data.by_area.length <= AREA_PREVIEW;
+  more.textContent = showAllAreas ? "Tampilkan lebih sedikit" : `Tampilkan semua ${data.by_area.length} wilayah`;
+  more.onclick = () => { showAllAreas = !showAllAreas; renderAreas(lastData); };
+}
+
+function render(data) {
+  lastData = data;
+  renderStatus(data);
+  renderHero(data);
+  renderChart(data);
+  renderSeverity(data);
+  renderAreas(data);
+  const asOf = new Date(data.as_of).toLocaleString("id-ID", { timeZone: "UTC", dateStyle: "medium", timeStyle: "medium" });
+  document.getElementById("footer").textContent =
+    `Snapshot ${asOf} UTC. Tsunami dihitung dari gempa yang memiliki peringatan tsunami, sehingga setiap kejadian masuk tepat satu jenis bahaya. Diperbarui setiap 15 detik.`;
+}
+
+async function load() {
+  try {
+    const res = await fetch("/api/analytics?" + new URLSearchParams(rangeParams()));
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error ? body.error.message : "HTTP " + res.status);
+    render(body);
+  } catch (e) {
+    document.getElementById("status").className = "status incomplete";
+    document.getElementById("status-text").textContent = "Data tidak dapat dimuat";
+    const notice = document.getElementById("notice");
+    notice.className = "notice show";
+    notice.innerHTML = `<strong>Data tidak dapat dimuat.</strong><span>${escape(e.message)}. Angka yang tampil adalah hasil terakhir yang berhasil dan bisa sudah usang.</span>`;
+  }
+}
+
+function drawRanges() {
+  document.getElementById("ranges").innerHTML = RANGES.map(([name], i) =>
+    `<button class="${i === current ? "active" : ""}" data-i="${i}">${name}</button>`).join("");
+  document.querySelectorAll("#ranges button").forEach(b => b.onclick = () => {
+    current = +b.dataset.i;
+    drawRanges();
+    load();
+  });
+}
+
+drawRanges();
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>

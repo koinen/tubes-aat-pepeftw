@@ -8,10 +8,10 @@ components:
   schemas:
     Source:
       type: string
-      enum: [BMKG, PVMBG]
+      enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI]
     HazardType:
       type: string
-      enum: [SEISMIC, VOLCANIC]
+      enum: [SEISMIC, VOLCANIC, WILDFIRE, COASTAL]
     Severity:
       type: string
       enum: [NORMAL, WASPADA, SIAGA, AWAS]
@@ -148,6 +148,13 @@ components:
         minimum: 1
         maximum: 200
         default: 50
+    PageCursor:
+      name: cursor
+      in: query
+      required: false
+      description: String buram dari next_cursor halaman sebelumnya. Halaman berikutnya memakai keyset (ingested_at, hazard_id) sehingga urutan tetap benar lintas shard.
+      schema:
+        type: string
     HazardId:
       name: hazard_id
       in: path
