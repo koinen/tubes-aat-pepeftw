@@ -37,6 +37,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "load-catalog" {
+		if err := runLoadCatalog(log, os.Args[2:]); err != nil {
+			log.Error("load_catalog_failed", "error", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(log); err != nil {
 		log.Error("aggregator_stopped", "error", err.Error())
 		os.Exit(1)
