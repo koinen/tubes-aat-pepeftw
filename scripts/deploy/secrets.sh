@@ -1,4 +1,5 @@
 SECRET_KEYS="DB_PASSWORD INTERNAL_API_KEY BMKG_API_KEY PVMBG_TOKEN_SECRET PVMBG_TOKEN PVMBG_ADMIN_KEY REDIS_PASSWORD MEDIA_SECRET LAPANGAN_SECRET BNPB_SECRET"
+OPTIONAL_SECRET_KEYS="AUDIT_TOKEN"
 
 load_env() {
   if [ ! -f .env ]
@@ -22,6 +23,13 @@ apply_secrets() {
       return 1
     fi
     args+=("--from-literal=${key}=${!key}")
+  done
+  for key in $OPTIONAL_SECRET_KEYS
+  do
+    if [ -n "${!key:-}" ]
+    then
+      args+=("--from-literal=${key}=${!key}")
+    fi
   done
 
   kubectl create secret generic bnpb-secrets -n "$NAMESPACE" "${args[@]}" \

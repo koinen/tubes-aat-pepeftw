@@ -66,6 +66,12 @@ spec:
                 secretKeyRef:
                   name: bnpb-secrets
                   key: PVMBG_TOKEN
+            - name: AUDIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: AUDIT_TOKEN
+                  optional: true
             - name: POD_NAME
               valueFrom:
                 fieldRef:
