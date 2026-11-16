@@ -3,8 +3,6 @@ kind: Kustomization
 resources:
   - ../../base
 replicas:
-  - name: crdb
-    count: 3
   - name: kafka
     count: 1
   - name: aggregator
