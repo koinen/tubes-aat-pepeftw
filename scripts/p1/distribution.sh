@@ -22,7 +22,9 @@ SELECT substring(g.locality FROM 'node=(.*)') AS k8s_node,
        (SELECT ranges FROM t) AS total_ranges,
        round(100.0 * COALESCE(sum(r.range_size) FILTER (WHERE g.node_id = ANY (r.replicas)), 0) / NULLIF((SELECT bytes FROM t), 0), 1) AS pct_of_table_bytes
 FROM crdb_internal.gossip_nodes AS g
+JOIN crdb_internal.gossip_liveness AS l USING (node_id)
 CROSS JOIN r
+WHERE l.membership = 'active'
 GROUP BY g.node_id, g.locality
 ORDER BY k8s_node"
 
@@ -35,4 +37,6 @@ SELECT substring(g.locality FROM 'node=(.*)') AS k8s_node,
        (s.metrics->>'replicas.leaseholders')::FLOAT::INT AS leaseholders_all_tables
 FROM crdb_internal.kv_store_status AS s
 JOIN crdb_internal.gossip_nodes AS g ON g.node_id = s.node_id
+JOIN crdb_internal.gossip_liveness AS l ON l.node_id = s.node_id
+WHERE l.membership = 'active'
 ORDER BY k8s_node"
