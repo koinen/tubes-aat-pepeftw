@@ -355,7 +355,7 @@ sh scripts/kind-up.sh
 bash scripts/deploy.sh
 ```
 
-`kind-up.sh` membuat cluster pengembangan kind (1 control plane dan 4 worker). `deploy.sh` membuat Secret dari `.env`, membangun image, memuatnya ke kind, lalu menerapkan manifest bertahap (infra, init, migrate, apps) dan menjalankan health check.
+`kind-up.sh` membuat cluster pengembangan kind (1 control plane dan 5 worker, satu worker cadangan untuk uji node baru). `deploy.sh` membuat Secret dari `.env`, membangun image, memuatnya ke kind, lalu menerapkan manifest bertahap (infra, init, migrate, apps) dan menjalankan health check.
 
 | Opsi deploy.sh | Fungsi |
 |---|---|
@@ -444,3 +444,17 @@ bash scripts/p1/audit.sh checksum BMKG
 | `READ_FAST_TIMEOUT` | `1500ms` | Batas query cepat daftar hazard sebelum beralih ke pembacaan per shard |
 | `READ_SHARD_TIMEOUT` | `2s` | Batas waktu tiap shard sebelum dianggap tidak terjangkau |
 | `DB_POOL_MAX_CONNS` | `24` | Jumlah koneksi database per pod aggregator, cukup untuk 16 query shard paralel |
+
+### P1: Node hilang, node baru, dan pemulihan
+
+CockroachDB menyimpan 3 replika setiap range pada node yang berbeda. Bila satu node hilang, setiap range masih punya mayoritas sehingga baca dan tulis tetap berjalan. Setelah 75 detik node dianggap mati (`server.time_until_store_dead`) dan replika yang kurang dibuat ulang di node lain. Zona sistem (`meta`, `liveness`, `system`) juga memakai 3 replika agar status pemulihan bisa mencapai nol pada cluster 4 node.
+
+| Skenario | Perintah |
+|---|---|
+| Lihat node, range kurang replika, dan range tidak tersedia | `bash scripts/p1/recovery-status.sh` |
+| Tunggu sampai replikasi pulih penuh | `bash scripts/p1/recovery-status.sh --wait` |
+| Simulasi node hilang beserta disknya (kind) | `bash scripts/p1/lose-node.sh <node>` |
+| Node yang sama kembali dengan disk kosong | nyalakan lagi node itu lalu `bash scripts/p1/decommission-dead.sh` |
+| Ganti node yang hilang permanen dengan node baru | `bash scripts/p1/replace-node.sh <node yang hilang>` |
+
+`replace-node.sh` diperlukan karena volume local-path terikat pada node asalnya. Skrip menghapus objek node yang hilang, melepas PVC pod CockroachDB yang tinggal di sana sehingga pod pindah ke node kosong dengan disk baru, lalu men-decommission node CockroachDB yang mati. Pada VM, node dimatikan oleh Tester Agent atau dengan mematikan VM, lalu langkah pemulihannya sama.
