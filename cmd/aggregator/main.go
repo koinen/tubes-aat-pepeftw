@@ -15,7 +15,6 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/config"
 	"tubes-aat-pepeftw/cmd/aggregator/httpapi"
 	"tubes-aat-pepeftw/cmd/aggregator/kafka"
-	"tubes-aat-pepeftw/cmd/aggregator/leader"
 	"tubes-aat-pepeftw/cmd/aggregator/logging"
 	"tubes-aat-pepeftw/cmd/aggregator/poller"
 	"tubes-aat-pepeftw/cmd/aggregator/relay"
@@ -30,20 +29,6 @@ const (
 
 func main() {
 	log := logging.New("aggregator")
-	if len(os.Args) > 1 && os.Args[1] == "migrate" {
-		if err := runMigrate(log); err != nil {
-			log.Error("migrate_failed", "error", err.Error())
-			os.Exit(1)
-		}
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "load-catalog" {
-		if err := runLoadCatalog(log, os.Args[2:]); err != nil {
-			log.Error("load_catalog_failed", "error", err.Error())
-			os.Exit(1)
-		}
-		return
-	}
 	if err := run(log); err != nil {
 		log.Error("aggregator_stopped", "error", err.Error())
 		os.Exit(1)
@@ -57,11 +42,6 @@ func run(log *slog.Logger) error {
 	}
 
 	pollerCfg, err := poller.LoadConfig()
-	if err != nil {
-		return err
-	}
-
-	leaderCfg, err := leader.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -80,7 +60,7 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("database_connected")
 
-	repo := postgres.New(pool).WithReadTimeouts(cfg.FastRead, cfg.ShardRead)
+	repo := postgres.New(pool)
 
 	producer, err := kafka.NewProducer(cfg.KafkaBrokers, cfg.HazardTopic)
 	if err != nil {
@@ -102,37 +82,28 @@ func run(log *slog.Logger) error {
 		pollerDone := make(chan struct{})
 		go func() {
 			defer close(pollerDone)
-			err := leader.Run(ctx, leaderCfg, log, func(leadCtx context.Context) {
-				poller.New(pollerCfg, poller.Deps{
-					Hazards:   repo,
-					Rejected:  repo,
-					Cursors:   repo,
-					Statuses:  repo,
-					Volcanoes: repo,
-					Log:       log,
-				}).Run(leadCtx)
-			})
-			if err != nil {
-				log.Error("leader_election_failed", "error", err.Error())
-				stop()
-			}
+			poller.New(pollerCfg, poller.Deps{
+				Hazards:   repo,
+				Rejected:  repo,
+				Cursors:   repo,
+				Statuses:  repo,
+				Volcanoes: repo,
+				Log:       log,
+			}).Run(ctx)
 		}()
 		defer func() {
 			stop()
 			<-pollerDone
 		}()
-		log.Info("poller_ready")
+		log.Info("poller_started")
 	}
 
 	app := httpapi.New(httpapi.Deps{
 		Hazards:      repo,
 		Statuses:     repo,
-		Audit:        repo,
-		Analytics:    repo,
 		PostgresPing: pool.Ping,
 		KafkaPing:    producer.Ping,
 		InternalKey:  cfg.InternalAPIKey,
-		AuditToken:   cfg.AuditToken,
 		Log:          log,
 	})
 
@@ -145,9 +116,6 @@ func run(log *slog.Logger) error {
 		}
 	}()
 
-	if cfg.AuditToken == "" {
-		log.Warn("audit_token_missing", "effect", "audit api rejects every request")
-	}
 	log.Info("aggregator_started", "port", cfg.Port)
 	return app.Listen(":"+cfg.Port, fiber.ListenConfig{DisableStartupMessage: true})
 }

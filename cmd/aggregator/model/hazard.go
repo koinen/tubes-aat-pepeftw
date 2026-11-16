@@ -5,36 +5,16 @@ import "time"
 type Source string
 
 const (
-	SourceBMKG         Source = "BMKG"
-	SourcePVMBG        Source = "PVMBG"
-	SourceSatelit      Source = "SATELIT"
-	SourceSensorPantai Source = "SENSOR_PANTAI"
+	SourceBMKG  Source = "BMKG"
+	SourcePVMBG Source = "PVMBG"
 )
-
-func (s Source) Valid() bool {
-	switch s {
-	case SourceBMKG, SourcePVMBG, SourceSatelit, SourceSensorPantai:
-		return true
-	}
-	return false
-}
 
 type HazardType string
 
 const (
 	HazardSeismic  HazardType = "SEISMIC"
 	HazardVolcanic HazardType = "VOLCANIC"
-	HazardWildfire HazardType = "WILDFIRE"
-	HazardCoastal  HazardType = "COASTAL"
 )
-
-func (t HazardType) Valid() bool {
-	switch t {
-	case HazardSeismic, HazardVolcanic, HazardWildfire, HazardCoastal:
-		return true
-	}
-	return false
-}
 
 type Severity string
 
