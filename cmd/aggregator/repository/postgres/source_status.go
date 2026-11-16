@@ -26,7 +26,7 @@ FROM source_status
 ORDER BY source`
 
 func (p *PostgresRepository) SaveSourceStatus(ctx context.Context, s model.SourceStatus) error {
-	_, err := p.pool.Exec(ctx, upsertSourceStatus,
+	_, err := p.fencedExecRetry(ctx, upsertSourceStatus,
 		s.Source, s.Status, s.BreakerState, utc(s.LastSuccessAt), utc(s.StaleSince), nullable(s.LastError))
 	if err != nil {
 		return fmt.Errorf("save source status %s: %w", s.Source, err)

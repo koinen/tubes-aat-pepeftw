@@ -12,6 +12,7 @@ data:
   DB_USER: "aat"
   DB_NAME: "aggregator"
   POLLER_ENABLED: "true"
+  LEADER_ELECTION: "true"
   BMKG_URL: "http://bmkg-mock:8080"
   PVMBG_URL: "http://pvmbg-mock:8080"
   POLL_INTERVAL: "3s"

@@ -31,7 +31,7 @@ func (p *PostgresRepository) GetCursor(ctx context.Context, source model.Source,
 }
 
 func (p *PostgresRepository) SetCursor(ctx context.Context, source model.Source, endpoint string, since time.Time) error {
-	if _, err := p.pool.Exec(ctx, upsertCursor, source, endpoint, since.UTC()); err != nil {
+	if _, err := p.fencedExecRetry(ctx, upsertCursor, source, endpoint, since.UTC()); err != nil {
 		return fmt.Errorf("set cursor %s/%s: %w", source, endpoint, err)
 	}
 	return nil
