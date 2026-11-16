@@ -40,6 +40,9 @@ resources:
   - dashboard-updater/configmap.yaml
   - dashboard-updater/deployment.yaml
   - dashboard-updater/service.yaml
+  - analytics-dashboard/configmap.yaml
+  - analytics-dashboard/deployment.yaml
+  - analytics-dashboard/service.yaml
   - bmkg-mock/configmap.yaml
   - bmkg-mock/deployment.yaml
   - bmkg-mock/service.yaml

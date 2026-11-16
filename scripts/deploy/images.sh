@@ -1,4 +1,4 @@
-SERVICES="aggregator auth client-api notifier audit-log dashboard-updater bmkg-mock pvmbg-mock"
+SERVICES="aggregator auth client-api notifier audit-log dashboard-updater bmkg-mock pvmbg-mock analytics-dashboard"
 
 image_tag() {
   local tag

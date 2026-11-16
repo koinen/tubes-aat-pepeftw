@@ -12,6 +12,7 @@ var (
 	_ repository.HazardWriter           = (*PostgresRepository)(nil)
 	_ repository.HazardReader           = (*PostgresRepository)(nil)
 	_ repository.AuditReader            = (*PostgresRepository)(nil)
+	_ repository.AnalyticsReader        = (*PostgresRepository)(nil)
 	_ repository.CursorRepository       = (*PostgresRepository)(nil)
 	_ repository.SourceStatusRepository = (*PostgresRepository)(nil)
 	_ repository.RejectedRepository     = (*PostgresRepository)(nil)
