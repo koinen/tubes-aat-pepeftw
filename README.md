@@ -365,11 +365,31 @@ bash scripts/deploy.sh
 | `--only <service>` | Build ulang dan rollout satu service saja |
 | `--fresh` | Hapus namespace beserta datanya lalu deploy dari awal |
 
+### Deploy ke cluster VM (demo)
+
+kind hanya untuk pengembangan. Demo berjalan di k3s pada VM dengan kernel terpisah. Langkah lengkap ada di [docs/vm-cluster.md](docs/vm-cluster.md).
+
+```bash
+bash scripts/deploy.sh --overlay vm --registry ghcr.io/koinen/
+```
+
+### Deklarasi topologi
+
+| Node | Jenis | Host fisik | CPU host | RAM host | Peran |
+|---|---|---|---|---|---|
+| `node-a` | VM VirtualBox | (isi saat demo) | (isi) | (isi) | control plane dan worker |
+| `node-b` | VM VirtualBox | (isi saat demo) | (isi) | (isi) | worker |
+| `node-c` | VM VirtualBox | (isi saat demo) | (isi) | (isi) | worker |
+| `node-d` | VM VirtualBox | (isi saat demo) | (isi) | (isi) | worker |
+
+Setiap node menjalankan satu pod CockroachDB. Skenario mematikan node hanya dikenakan pada node worker non-control-plane.
+
 ### Struktur manifest
 
 | Path | Isi |
 |---|---|
 | `deploy/base` | Topologi asli untuk cluster demo (CockroachDB 4, Kafka 3, aggregator 3) |
+| `deploy/overlays/vm` | Cluster VM k3s (CockroachDB 4, aggregator 3, Kafka 1, image dari GHCR) |
 | `deploy/overlays/dev` | Replika lebih sedikit untuk kind di laptop (CockroachDB 4, Kafka 1, aplikasi 1) |
 | `deploy/kind/cluster.yaml` | Konfigurasi cluster kind dan port host 8080 sampai 8085 |
 | `cmd/aggregator/migrations` | Skema SQL, dijalankan oleh Job `aggregator-migrate` (`./aggregator migrate`) |

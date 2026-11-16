@@ -40,4 +40,11 @@ apply_secrets() {
     --from-file=auth_priv.pem=secrets/auth_priv.pem \
     --from-file=auth_pub.pem=secrets/auth_pub.pem \
     --dry-run=client -o yaml | kubectl apply -f -
+
+  if [ -n "${GHCR_USER:-}" ] && [ -n "${GHCR_TOKEN:-}" ]
+  then
+    kubectl create secret docker-registry ghcr-pull -n "$NAMESPACE" \
+      --docker-server=ghcr.io --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  fi
 }

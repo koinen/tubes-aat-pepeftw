@@ -11,6 +11,7 @@ REGISTRY="bnpb/"
 TAG=""
 ONLY=""
 FRESH=false
+HEALTH=false
 BUILD=true
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-300s}"
 
@@ -24,6 +25,7 @@ usage: scripts/deploy.sh [options]
   --no-build           skip docker build (requires --tag)
   --only <service>     rebuild one service and roll it out
   --fresh              delete the namespace and all its data first
+  --health             run the hurl health check on a non-kind cluster through the tunnel
 EOF
 }
 
@@ -44,6 +46,8 @@ do
     --only) ONLY="$2"
       shift 2 ;;
     --fresh) FRESH=true
+      shift ;;
+    --health) HEALTH=true
       shift ;;
     -h|--help) usage
       exit 0 ;;
