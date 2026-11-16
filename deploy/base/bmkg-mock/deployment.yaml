@@ -44,12 +44,14 @@ spec:
                   name: bnpb-secrets
                   key: BMKG_API_KEY
           readinessProbe:
+            timeoutSeconds: 3
             httpGet:
               path: /health
               port: 8080
             periodSeconds: 5
             failureThreshold: 2
           livenessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: 8080
             initialDelaySeconds: 15

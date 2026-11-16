@@ -46,11 +46,13 @@ spec:
             - name: controller
               containerPort: 9093
           readinessProbe:
+            timeoutSeconds: 3
             tcpSocket:
               port: client
             periodSeconds: 5
             failureThreshold: 3
           livenessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: controller
             initialDelaySeconds: 60
