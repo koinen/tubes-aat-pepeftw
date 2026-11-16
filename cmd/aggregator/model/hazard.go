@@ -11,6 +11,14 @@ const (
 	SourceSensorPantai Source = "SENSOR_PANTAI"
 )
 
+func (s Source) Valid() bool {
+	switch s {
+	case SourceBMKG, SourcePVMBG, SourceSatelit, SourceSensorPantai:
+		return true
+	}
+	return false
+}
+
 type HazardType string
 
 const (

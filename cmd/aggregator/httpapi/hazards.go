@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -10,9 +12,17 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
 )
 
+const (
+	sourcesTimeout   = time.Second
+	sourceStatusUnit = "source-status"
+)
+
 type hazardListResponse struct {
-	Data    []model.HazardEvent          `json:"data"`
-	Sources map[model.Source]sourceEntry `json:"sources"`
+	Data             []model.HazardEvent          `json:"data"`
+	Sources          map[model.Source]sourceEntry `json:"sources"`
+	NextCursor       *string                      `json:"next_cursor"`
+	Partial          bool                         `json:"partial"`
+	UnavailableUnits []string                     `json:"unavailable_units"`
 }
 
 func (h handlers) listHazards(c fiber.Ctx) error {
@@ -21,15 +31,27 @@ func (h handlers) listHazards(c fiber.Ctx) error {
 		return writeError(c, fiber.StatusBadRequest, codeValidation, err.Error())
 	}
 
-	hazards, err := h.hazards.ListHazards(c.Context(), filter)
+	page, err := h.hazards.ListHazards(c.Context(), filter)
 	if err != nil {
 		return err
 	}
-	sources, err := sourcesBlock(c.Context(), h.statuses)
+
+	unavailable := page.UnavailableUnits
+	sourcesCtx, cancel := context.WithTimeout(c.Context(), sourcesTimeout)
+	sources, err := sourcesBlock(sourcesCtx, h.statuses)
+	cancel()
 	if err != nil {
-		return err
+		sources = map[model.Source]sourceEntry{}
+		unavailable = append(unavailable, sourceStatusUnit)
 	}
-	return c.JSON(hazardListResponse{Data: hazards, Sources: sources})
+
+	return c.JSON(hazardListResponse{
+		Data:             page.Items,
+		Sources:          sources,
+		NextCursor:       page.NextCursor,
+		Partial:          len(unavailable) > 0,
+		UnavailableUnits: unavailable,
+	})
 }
 
 func (h handlers) getHazard(c fiber.Ctx) error {

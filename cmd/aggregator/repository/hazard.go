@@ -28,9 +28,10 @@ const (
 // Hazard Read
 // HazardFilter selects hazards with IngestedAt >= Since
 type HazardFilter struct {
-	Type  *model.HazardType
-	Since *time.Time
-	Limit int
+	Type   *model.HazardType
+	Since  *time.Time
+	Limit  int
+	Cursor *Keyset
 }
 
 func (f HazardFilter) EffectiveLimit() int {
@@ -45,6 +46,6 @@ func (f HazardFilter) EffectiveLimit() int {
 }
 
 type HazardReader interface {
-	ListHazards(ctx context.Context, f HazardFilter) ([]model.HazardEvent, error)
+	ListHazards(ctx context.Context, f HazardFilter) (Page[model.HazardEvent], error)
 	GetHazard(ctx context.Context, hazardID string) (model.HazardEvent, error)
 }

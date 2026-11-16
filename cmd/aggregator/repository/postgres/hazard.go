@@ -30,12 +30,6 @@ SELECT hazard_id::text, source, source_ref_id, hazard_type, severity, area_name,
        latitude, longitude, occurred_at, ingested_at, attributes
 FROM hazard_events`
 
-const listHazards = selectHazardColumns + `
-WHERE ($1::text IS NULL OR hazard_type = $1)
-  AND ($2::timestamptz IS NULL OR ingested_at >= $2)
-ORDER BY ingested_at DESC, hazard_id
-LIMIT $3`
-
 const getHazard = selectHazardColumns + `
 WHERE hazard_id = $1`
 
@@ -79,29 +73,6 @@ func (p *PostgresRepository) SaveHazard(ctx context.Context, h model.HazardEvent
 		return "", fmt.Errorf("save hazard %s: %w", h.HazardID, err)
 	}
 	return outcome, nil
-}
-
-func (p *PostgresRepository) ListHazards(ctx context.Context, f repository.HazardFilter) ([]model.HazardEvent, error) {
-	var hazardType *string
-	if f.Type != nil {
-		t := string(*f.Type)
-		hazardType = &t
-	}
-
-	rows, err := p.pool.Query(ctx, listHazards, hazardType, f.Since, f.EffectiveLimit())
-	if err != nil {
-		return nil, fmt.Errorf("list hazards: %w", err)
-	}
-	hazards, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.HazardEvent, error) {
-		return scanHazard(row)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list hazards: %w", err)
-	}
-	if hazards == nil {
-		hazards = []model.HazardEvent{}
-	}
-	return hazards, nil
 }
 
 func (p *PostgresRepository) GetHazard(ctx context.Context, hazardID string) (model.HazardEvent, error) {
