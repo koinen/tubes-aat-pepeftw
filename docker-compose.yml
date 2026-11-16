@@ -138,6 +138,7 @@ services:
       dockerfile: ./cmd/aggregator/Dockerfile
     environment:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      AUDIT_TOKEN: ${AUDIT_TOKEN:-}
       DB_HOST: aggregator-db
       DB_PORT: "26257"
       DB_USER: ${DB_USER}

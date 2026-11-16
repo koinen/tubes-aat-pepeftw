@@ -80,7 +80,7 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("database_connected")
 
-	repo := postgres.New(pool)
+	repo := postgres.New(pool).WithReadTimeouts(cfg.FastRead, cfg.ShardRead)
 
 	producer, err := kafka.NewProducer(cfg.KafkaBrokers, cfg.HazardTopic)
 	if err != nil {
@@ -127,9 +127,11 @@ func run(log *slog.Logger) error {
 	app := httpapi.New(httpapi.Deps{
 		Hazards:      repo,
 		Statuses:     repo,
+		Audit:        repo,
 		PostgresPing: pool.Ping,
 		KafkaPing:    producer.Ping,
 		InternalKey:  cfg.InternalAPIKey,
+		AuditToken:   cfg.AuditToken,
 		Log:          log,
 	})
 
@@ -142,6 +144,9 @@ func run(log *slog.Logger) error {
 		}
 	}()
 
+	if cfg.AuditToken == "" {
+		log.Warn("audit_token_missing", "effect", "audit api rejects every request")
+	}
 	log.Info("aggregator_started", "port", cfg.Port)
 	return app.Listen(":"+cfg.Port, fiber.ListenConfig{DisableStartupMessage: true})
 }
