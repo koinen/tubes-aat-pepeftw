@@ -15,7 +15,16 @@ data:
       sleep 3
     done
     sql() {
-      "$crdb" sql --insecure --host="$CRDB_SQL_HOST" -e "$1"
+      for attempt in 1 2 3 4 5 6 7 8 9 10
+      do
+        if timeout 30 "$crdb" sql --insecure --host="$CRDB_SQL_HOST" -e "SET statement_timeout = '20s'" -e "$1"
+        then
+          return 0
+        fi
+        echo "retrying ($attempt): $1"
+        sleep 3
+      done
+      return 1
     }
     sql "CREATE DATABASE IF NOT EXISTS ${DB_NAME}"
     sql "CREATE USER IF NOT EXISTS ${DB_USER}"
