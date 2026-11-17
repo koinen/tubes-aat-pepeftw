@@ -49,3 +49,34 @@ resources:
   - pvmbg-mock/configmap.yaml
   - pvmbg-mock/deployment.yaml
   - pvmbg-mock/service.yaml
+  - observability/prometheus-config.yaml
+  - observability/prometheus-rbac.yaml
+  - observability/prometheus.yaml
+  - observability/jaeger.yaml
+  - observability/grafana-provisioning.yaml
+  - observability/grafana.yaml
+configMapGenerator:
+  - name: grafana-dashboards
+    files:
+      - observability/dashboards/bnpb-services.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app: grafana
+        bnpb.io/stage: infra
+patches:
+  - target:
+      kind: Deployment
+      labelSelector: bnpb.io/stage=apps
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: scrape
+      spec:
+        template:
+          metadata:
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "8080"
+              prometheus.io/path: /metrics

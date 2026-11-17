@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-provisioning
+  labels:
+    app: grafana
+    bnpb.io/stage: infra
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+      - name: Jaeger
+        uid: jaeger
+        type: jaeger
+        access: proxy
+        url: http://jaeger:16686
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: bnpb
+        folder: BNPB
+        type: file
+        disableDeletion: true
+        options:
+          path: /var/lib/grafana/dashboards
