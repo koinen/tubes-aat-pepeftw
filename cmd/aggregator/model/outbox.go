@@ -8,4 +8,5 @@ type OutboxRecord struct {
 	HazardID      string
 	Payload       json.RawMessage
 	CorrelationID string
+	TraceParent   string
 }

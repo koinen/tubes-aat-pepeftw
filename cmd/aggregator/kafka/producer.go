@@ -7,6 +7,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"tubes-aat-pepeftw/cmd/aggregator/model"
+
+	"tubes-aat-pepeftw/internal/telemetry"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 const deliveryTimeout = 10 * time.Second
@@ -32,11 +36,13 @@ func NewProducer(brokers []string, topic string) (*Producer, error) {
 func (p *Producer) Publish(ctx context.Context, records []model.OutboxRecord) []error {
 	batch := make([]*kgo.Record, len(records))
 	position := make(map[*kgo.Record]int, len(records))
+	spans := make([]trace.Span, len(records))
 	for i, r := range records {
-		rec := &kgo.Record{Key: []byte(r.HazardID), Value: r.Payload}
+		rec := &kgo.Record{Topic: p.topic, Key: []byte(r.HazardID), Value: r.Payload}
 		if r.CorrelationID != "" {
 			rec.Headers = []kgo.RecordHeader{{Key: "correlation_id", Value: []byte(r.CorrelationID)}}
 		}
+		_, spans[i] = telemetry.Produce(telemetry.FromTraceParent(ctx, r.TraceParent), rec)
 		batch[i] = rec
 		position[rec] = i
 	}
@@ -44,6 +50,9 @@ func (p *Producer) Publish(ctx context.Context, records []model.OutboxRecord) []
 	errs := make([]error, len(records))
 	for _, res := range p.client.ProduceSync(ctx, batch...) {
 		errs[position[res.Record]] = res.Err
+	}
+	for i, span := range spans {
+		telemetry.Produced(span, p.topic, errs[i])
 	}
 	return errs
 }

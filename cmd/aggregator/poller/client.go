@@ -11,6 +11,8 @@ import (
 
 	"tubes-aat-pepeftw/cmd/aggregator/correlation"
 	"tubes-aat-pepeftw/cmd/aggregator/model"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const maxBodyBytes = 10 << 20
@@ -29,7 +31,7 @@ func newFetcher(source model.Source, baseURL string, timeout time.Duration, auth
 	return &fetcher{
 		source:  source,
 		baseURL: baseURL,
-		client:  &http.Client{Transport: http.DefaultTransport.(*http.Transport).Clone()},
+		client:  &http.Client{Transport: telemetry.Transport(http.DefaultTransport.(*http.Transport).Clone())},
 		timeout: timeout,
 		auth:    auth,
 		log:     log,
