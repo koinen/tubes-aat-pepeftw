@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/poller"
 	"tubes-aat-pepeftw/cmd/aggregator/relay"
 	"tubes-aat-pepeftw/cmd/aggregator/repository/postgres"
+	"tubes-aat-pepeftw/cmd/aggregator/satellite"
 
 	"tubes-aat-pepeftw/internal/telemetry"
 )
@@ -68,6 +70,11 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	satCfg, err := satellite.LoadConfig()
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -106,19 +113,48 @@ func run(log *slog.Logger) error {
 		<-relayDone
 	}()
 
-	if pollerCfg.Enabled {
-		pollerDone := make(chan struct{})
+	if pollerCfg.Enabled || satCfg.Enabled {
+		leaderDone := make(chan struct{})
 		go func() {
-			defer close(pollerDone)
+			defer close(leaderDone)
 			err := leader.Run(ctx, leaderCfg, log, func(leadCtx context.Context) {
-				poller.New(pollerCfg, poller.Deps{
-					Hazards:   repo,
-					Rejected:  repo,
-					Cursors:   repo,
-					Statuses:  repo,
-					Volcanoes: repo,
-					Log:       log,
-				}).Run(leadCtx)
+				var wg sync.WaitGroup
+				if pollerCfg.Enabled {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						poller.New(pollerCfg, poller.Deps{
+							Hazards:   repo,
+							Rejected:  repo,
+							Cursors:   repo,
+							Statuses:  repo,
+							Volcanoes: repo,
+							Log:       log,
+						}).Run(leadCtx)
+					}()
+				}
+				if satCfg.Enabled {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						satellite.New(satCfg, satellite.Deps{
+							LastOffset: func(c context.Context) (int64, error) {
+								s, err := repo.SatelliteState(c)
+								return s.LastOffset, err
+							},
+							Apply: func(c context.Context, ev []satellite.Event, lateness time.Duration, at time.Time) (satellite.BatchStats, error) {
+								r, err := repo.ApplySatelliteBatch(c, ev, lateness, at)
+								return satellite.BatchStats{
+									LastOffset: r.LastOffset, Detections: r.Detections, Duplicates: r.Duplicates,
+									Late: r.Late, Updates: r.Updates, Retracts: r.Retracts,
+									Orphans: r.Orphans, Gaps: r.Gaps,
+								}, err
+							},
+							Log: log,
+						}).Run(leadCtx)
+					}()
+				}
+				wg.Wait()
 			})
 			if err != nil {
 				log.Error("leader_election_failed", "error", err.Error())
@@ -127,9 +163,9 @@ func run(log *slog.Logger) error {
 		}()
 		defer func() {
 			stop()
-			<-pollerDone
+			<-leaderDone
 		}()
-		log.Info("poller_ready")
+		log.Info("leader_workers_ready", "poller", pollerCfg.Enabled, "satellite", satCfg.Enabled)
 	}
 
 	app := httpapi.New(httpapi.Deps{
