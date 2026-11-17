@@ -9,3 +9,4 @@ data:
   PORT: "8080"
   AGGREGATOR_URL: "http://aggregator:8080"
   AGGREGATOR_TIMEOUT: "6s"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318

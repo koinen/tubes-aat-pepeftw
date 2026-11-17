@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const serviceName = "pvmbg-mock"
@@ -100,6 +102,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, err := telemetry.Init(ctx, serviceName)
+	if err != nil {
+		log.Error("tracing_init_failed", "error", err.Error())
+		os.Exit(1)
+	}
+	defer shutdownTracing(context.Background())
 	go runGenerator(ctx, store, gen, state, cfg.ReportInterval, log)
 
 	app := newApp(ctx, cfg, store, state, log)
@@ -124,7 +132,8 @@ func newApp(ctx context.Context, cfg Config, store *Store, state *State, log *sl
 		ReadTimeout:  30 * time.Second,
 		ErrorHandler: errorHandler,
 	})
-	app.Use(correlationMiddleware(log))
+	app.Use(telemetry.Middleware(), correlationMiddleware(log))
+	app.Get("/metrics", telemetry.MetricsHandler())
 
 	app.Get("/health", func(c fiber.Ctx) error {
 		if enabled, _, _ := state.Outage(); enabled {

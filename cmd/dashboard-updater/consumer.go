@@ -5,6 +5,8 @@ import (
 	"log/slog"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 func newConsumerClient(cfg config) (*kgo.Client, error) {
@@ -28,7 +30,9 @@ func consume(ctx context.Context, client *kgo.Client, u *updater, log *slog.Logg
 			log.Error("kafka_fetch_failed", "correlation_id", "", "topic", topic, "partition", partition, "error", err.Error())
 		})
 		fetches.EachRecord(func(r *kgo.Record) {
+			_, done := telemetry.Consume(ctx, r)
 			u.handle(r.Value, header(r, "correlation_id"))
+			done(nil)
 		})
 	}
 }

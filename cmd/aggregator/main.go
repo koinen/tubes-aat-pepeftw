@@ -20,6 +20,8 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/poller"
 	"tubes-aat-pepeftw/cmd/aggregator/relay"
 	"tubes-aat-pepeftw/cmd/aggregator/repository/postgres"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const (
@@ -68,6 +70,12 @@ func run(log *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	shutdownTracing, err := telemetry.Init(ctx, "aggregator")
+	if err != nil {
+		return err
+	}
+	defer shutdownTracing(context.Background())
 
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {

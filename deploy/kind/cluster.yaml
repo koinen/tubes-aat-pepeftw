@@ -18,6 +18,12 @@ nodes:
         hostPort: 8085
       - containerPort: 30086
         hostPort: 8086
+      - containerPort: 30087
+        hostPort: 8087
+      - containerPort: 30088
+        hostPort: 8088
+      - containerPort: 30089
+        hostPort: 8089
   - role: worker
   - role: worker
   - role: worker

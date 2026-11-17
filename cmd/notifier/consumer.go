@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const commitTimeout = 5 * time.Second
@@ -33,7 +35,9 @@ func consume(ctx context.Context, client *kgo.Client, n *notifier, log *slog.Log
 			log.Error("kafka_fetch_failed", "correlation_id", "", "topic", topic, "partition", partition, "error", err.Error())
 		})
 		fetches.EachRecord(func(r *kgo.Record) {
+			_, done := telemetry.Consume(ctx, r)
 			n.handle(r.Value, header(r, "correlation_id"))
+			done(nil)
 		})
 
 		commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), commitTimeout)

@@ -5,6 +5,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
+COPY internal/ internal/
 COPY cmd/analytics-dashboard/ cmd/analytics-dashboard/
 RUN CGO_ENABLED=0 GOOS=linux go build -o ./bin/analytics-dashboard ./cmd/analytics-dashboard
 

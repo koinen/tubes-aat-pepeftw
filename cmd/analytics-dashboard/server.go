@@ -9,6 +9,8 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const healthTimeout = 2 * time.Second
@@ -20,6 +22,8 @@ var forwardedParams = []string{"from", "to", "bucket"}
 
 func newServer(agg *aggregatorClient, log *slog.Logger) *fiber.App {
 	app := fiber.New()
+	app.Use(telemetry.Middleware())
+	app.Get("/metrics", telemetry.MetricsHandler())
 
 	app.Get("/", func(c fiber.Ctx) error {
 		c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)

@@ -11,6 +11,10 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/correlation"
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
+
+	"tubes-aat-pepeftw/internal/telemetry"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type runner struct {
@@ -57,6 +61,9 @@ func (r *runner) restoreStatus(ctx context.Context) {
 func (r *runner) tick(ctx context.Context) {
 	cid := uuid.NewString()
 	ctx = correlation.With(ctx, cid)
+	ctx, span := telemetry.Start(ctx, "poll "+string(r.source))
+	span.SetAttributes(attribute.String("correlation_id", cid))
+	defer span.End()
 	now := r.now()
 
 	if !r.breaker.Allow(now) {
