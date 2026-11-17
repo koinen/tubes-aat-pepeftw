@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"tubes-aat-pepeftw/cmd/client-api/internal/config"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 type Client struct {
@@ -29,13 +31,13 @@ func NewClient(cfg config.AggregatorConfig, log *slog.Logger) *Client {
 	return &Client{
 		baseURL:     cfg.BaseURL,
 		internalKey: cfg.InternalKey,
-		httpClient:  &http.Client{Timeout: 5 * time.Second, Transport: transport},
+		httpClient:  &http.Client{Timeout: 5 * time.Second, Transport: telemetry.Transport(transport)},
 		log:         log,
 	}
 }
 
 func (c *Client) Ping() error {
-	resp, err := c.do("/health", "")
+	resp, err := c.do(context.Background(), "/health", "")
 	if err != nil {
 		return err
 	}
@@ -47,8 +49,8 @@ func (c *Client) Ping() error {
 	return nil
 }
 
-func (c *Client) Get(path, correlationID string) (map[string]any, int, error) {
-	resp, err := c.do(path, correlationID)
+func (c *Client) Get(ctx context.Context, path, correlationID string) (map[string]any, int, error) {
+	resp, err := c.do(ctx, path, correlationID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("aggregator request failed: %w", err)
 	}
@@ -67,8 +69,8 @@ func (c *Client) Get(path, correlationID string) (map[string]any, int, error) {
 	return result, resp.StatusCode, nil
 }
 
-func (c *Client) do(path, correlationID string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
+func (c *Client) do(ctx context.Context, path, correlationID string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build aggregator request: %w", err)
 	}

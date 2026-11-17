@@ -8,6 +8,8 @@ import (
 	"net/url"
 
 	"github.com/google/uuid"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const (
@@ -23,7 +25,7 @@ type aggregatorClient struct {
 }
 
 func newAggregatorClient(cfg config) *aggregatorClient {
-	return &aggregatorClient{base: cfg.aggregatorURL, key: cfg.internalKey, http: &http.Client{Timeout: cfg.timeout}}
+	return &aggregatorClient{base: cfg.aggregatorURL, key: cfg.internalKey, http: &http.Client{Timeout: cfg.timeout, Transport: telemetry.Transport(nil)}}
 }
 
 func (a *aggregatorClient) analytics(ctx context.Context, query url.Values, correlationID string) (int, []byte, error) {

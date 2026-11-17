@@ -22,6 +22,8 @@ import (
 	"tubes-aat-pepeftw/cmd/client-api/internal/ratelimit"
 	redisConn "tubes-aat-pepeftw/cmd/client-api/internal/redis"
 	"tubes-aat-pepeftw/cmd/client-api/internal/source"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 func main() {
@@ -33,6 +35,12 @@ func main() {
 	}
 
 	ctx := context.Background()
+	shutdownTracing, err := telemetry.Init(ctx, "client-api")
+	if err != nil {
+		logger.Error("tracing_init_failed", "error", err.Error())
+		os.Exit(1)
+	}
+	defer shutdownTracing(context.Background())
 
 	// --- 1. Redis Connection (Rate Limiting) ---
 	redisClient, err := redisConn.Connect(ctx, cfg.Redis)
@@ -77,11 +85,12 @@ func main() {
 	onError := errorHandler(logger)
 	app := fiber.New(fiber.Config{ErrorHandler: onError})
 
-	app.Use(common.CorrelationID, common.RequestLogger(logger, onError), recoverer.New())
+	app.Use(telemetry.Middleware(), common.CorrelationID, common.RequestLogger(logger, onError), recoverer.New())
 
 	// Health Check (Public, no auth, no rate limiting)
 	healthHandler := health.NewHandler(aggClient, true)
 	app.Get("/health", healthHandler.HealthCheck)
+	app.Get("/metrics", telemetry.MetricsHandler())
 
 	// Authentication & Rate Limiting Middlewares
 	verifier := auth.NewVerifier(jwks, cfg.Auth.JWTIssuer, cfg.Auth.JWTAudience, denylist)

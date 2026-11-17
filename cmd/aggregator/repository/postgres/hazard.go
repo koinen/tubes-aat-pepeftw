@@ -13,6 +13,8 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/correlation"
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const insertHazard = `
@@ -22,8 +24,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT DO NOTHING`
 
 const insertOutbox = `
-INSERT INTO outbox (event_id, hazard_id, event_type, payload, correlation_id)
-VALUES ($1, $2, $3, $4, $5)`
+INSERT INTO outbox (event_id, hazard_id, event_type, payload, correlation_id, trace_parent)
+VALUES ($1, $2, $3, $4, $5, $6)`
 
 const selectHazardColumns = `
 SELECT hazard_id::text, source, source_ref_id, hazard_type, severity, area_name,
@@ -62,7 +64,7 @@ func (p *PostgresRepository) SaveHazard(ctx context.Context, h model.HazardEvent
 			}
 
 			if _, err := tx.Exec(ctx, insertOutbox,
-				msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx))); err != nil {
+				msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx)), nullable(telemetry.TraceParent(ctx))); err != nil {
 				return err
 			}
 			outcome = repository.OutcomeCreated

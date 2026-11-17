@@ -9,6 +9,8 @@ import (
 	recoverer "github.com/gofiber/fiber/v3/middleware/recover"
 
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 type Deps struct {
@@ -35,8 +37,9 @@ func New(d Deps) *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: onError})
 	h := handlers{hazards: d.Hazards, statuses: d.Statuses, audit: d.Audit, analyticsRepo: d.Analytics}
 
-	app.Use(correlationID, requestLogger(d.Log, onError), recoverer.New())
+	app.Use(telemetry.Middleware(), correlationID, requestLogger(d.Log, onError), recoverer.New())
 	app.Get("/health", health(d.PostgresPing, d.KafkaPing))
+	app.Get("/metrics", telemetry.MetricsHandler())
 
 	audit := app.Group(auditPrefix, requireAuditToken(d.AuditToken))
 	audit.Get("/events", h.auditEvents)
