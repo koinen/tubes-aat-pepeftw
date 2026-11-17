@@ -492,3 +492,21 @@ Service `analytics-dashboard` menyajikan halaman analitik di port `8086` (NodePo
 | Pesisir | `COASTAL` |
 
 Bila sebagian unit tidak terjangkau, halaman tetap tampil, setiap angka diberi tanda `*`, dan banner menyebut unit yang hilang. Cluster kind yang dibuat sebelum port `8086` ditambahkan dapat memakai `kubectl -n sistem-informasi-kebencanaan-bnpb port-forward svc/analytics-dashboard 8086:8080`.
+
+### Observabilitas
+
+| Komponen | Alamat | Isi |
+|---|---|---|
+| Grafana | `http://localhost:8087` | Dashboard "Layanan BNPB": service aktif, throughput, error rate, latensi p95 per service dan per route, pesan Kafka per detik, waktu proses pesan |
+| Jaeger | `http://localhost:8088` | Jejak satu alur permintaan lintas service beserta durasi tiap langkah |
+| Prometheus | `http://localhost:8089` | Metrik mentah dan status target scrape |
+
+Setiap service Go memakai paket `internal/telemetry`: middleware HTTP yang mencatat metrik `bnpb_http_*` dan span, transport HTTP yang meneruskan header `traceparent`, serta pembungkus Kafka yang menulis `traceparent` ke header pesan. Outbox menyimpan `trace_parent` (migrasi `007`) sehingga satu jejak menyambung dari polling aggregator, mock BMKG atau PVMBG, penyimpanan, publikasi Kafka, sampai notifier, dashboard-updater, dan audit-log. Tracing aktif hanya bila `OTEL_EXPORTER_OTLP_ENDPOINT` terisi, sehingga docker compose tetap berjalan tanpa Jaeger.
+
+| Jejak yang ditunjukkan | Cara mencarinya di Jaeger |
+|---|---|
+| Alur ingest | service `aggregator`, operation `poll BMKG` atau `poll PVMBG` |
+| Alur baca klien | service `client-api`, operation `GET /hazards` |
+| Dashboard analitik | service `analytics-dashboard`, operation `GET /api/analytics` |
+
+Cluster kind yang dibuat sebelum port `8087` sampai `8089` ditambahkan dapat memakai `kubectl port-forward svc/grafana 8087:3000`, `svc/jaeger 8088:16686`, dan `svc/prometheus 8089:9090` pada namespace sistem.
