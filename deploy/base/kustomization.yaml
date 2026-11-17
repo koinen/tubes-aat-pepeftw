@@ -59,6 +59,7 @@ configMapGenerator:
   - name: grafana-dashboards
     files:
       - observability/dashboards/bnpb-services.json
+      - observability/dashboards/bnpb-satellite.json
     options:
       disableNameSuffixHash: true
       labels:
