@@ -156,10 +156,15 @@ func run(log *slog.Logger) error {
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
-						rec := satellite.NewRecognizer(wildfireStore{repo}, log, 5*time.Second)
+						rec := satellite.NewRecognizer(wildfireStore{repo}, log, 5*time.Second).WithObserver(satellite.NewPromMetrics())
 						if err := rec.Run(leadCtx); err != nil {
 							log.Error("wildfire_recognizer_stopped", "error", err.Error())
 						}
+					}()
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						satellite.NewMonitor(satCfg, wildfireStore{repo}, satellite.NewPromMetrics(), log).Run(leadCtx)
 					}()
 				}
 				wg.Wait()

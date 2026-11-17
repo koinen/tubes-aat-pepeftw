@@ -10,12 +10,17 @@ import (
 
 const selectActiveDetections = `
 SELECT detection_key, COALESCE(satellite, ''), acq_time, latitude, longitude,
-       COALESCE(confidence, ''), COALESCE(frp, 0)
+       COALESCE(confidence, ''), COALESCE(frp, 0), COALESCE(received_at, now())
 FROM satellite_detection
 WHERE NOT retracted AND COALESCE(confidence, '') <> 'l'`
 
 const selectWildfires = selectHazardColumns + `
 WHERE source = 'SATELIT' AND hazard_type = 'WILDFIRE'`
+
+const selectProgress = `
+SELECT s.last_offset, (SELECT count(*) FROM satellite_late)
+FROM satellite_feed_state s
+WHERE s.id`
 
 func (p *PostgresRepository) ActiveDetections(ctx context.Context) ([]satellite.Detection, error) {
 	rows, err := p.pool.Query(ctx, selectActiveDetections)
@@ -27,10 +32,11 @@ func (p *PostgresRepository) ActiveDetections(ctx context.Context) ([]satellite.
 	var out []satellite.Detection
 	for rows.Next() {
 		var d satellite.Detection
-		if err := rows.Scan(&d.Key, &d.Satellite, &d.AcqTime, &d.Latitude, &d.Longitude, &d.Confidence, &d.FRP); err != nil {
+		if err := rows.Scan(&d.Key, &d.Satellite, &d.AcqTime, &d.Latitude, &d.Longitude, &d.Confidence, &d.FRP, &d.ReceivedAt); err != nil {
 			return nil, fmt.Errorf("active detections: %w", err)
 		}
 		d.AcqTime = d.AcqTime.UTC()
+		d.ReceivedAt = d.ReceivedAt.UTC()
 		out = append(out, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -66,4 +72,12 @@ func (p *PostgresRepository) DetectionVersion(ctx context.Context) (int64, error
 		return 0, fmt.Errorf("detection version: %w", err)
 	}
 	return v, nil
+}
+
+func (p *PostgresRepository) Progress(ctx context.Context) (satellite.Progress, error) {
+	var pr satellite.Progress
+	if err := p.pool.QueryRow(ctx, selectProgress).Scan(&pr.Applied, &pr.Late); err != nil {
+		return pr, fmt.Errorf("satellite progress: %w", err)
+	}
+	return pr, nil
 }

@@ -24,6 +24,7 @@ type Detection struct {
 	Longitude  float64
 	Confidence string
 	FRP        float64
+	ReceivedAt time.Time 
 }
 
 type Changes struct {

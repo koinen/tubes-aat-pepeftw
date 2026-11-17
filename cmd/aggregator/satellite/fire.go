@@ -14,24 +14,22 @@ const (
 	SeverityAwas    = "AWAS"
 )
 
-// Fire adalah satu kebakaran hasil pengelompokan, siap dipetakan menjadi HazardEvent WILDFIRE.
 type Fire struct {
 	SourceRefID   string
 	Count         int
 	Satellites    []string
 	MaxConfidence string
-	TotalFRP      float64 // MW, dibulatkan 2 desimal
-	Latitude      float64 // titik pusat: rata-rata koordinat anggota
+	TotalFRP      float64 
+	Latitude      float64 
 	Longitude     float64
-	OccurredAt    time.Time // waktu deteksi paling awal
+	OccurredAt    time.Time 
 	Severity      string
 	DetectionKeys []string
+	LastReceived  time.Time 
 }
 
 var confidenceRank = map[string]int{"l": 0, "n": 1, "h": 2}
 
-// BuildFire menyusun Fire dari anggota satu kelompok. members harus hasil Cluster (urut waktu lalu kunci),
-// sehingga hasilnya sama persis untuk data yang sama berapa kali pun diproses.
 func BuildFire(members []Detection) Fire {
 	f := Fire{Count: len(members), OccurredAt: members[0].AcqTime, MaxConfidence: members[0].Confidence}
 
@@ -45,6 +43,9 @@ func BuildFire(members []Detection) Fire {
 		f.DetectionKeys = append(f.DetectionKeys, m.Key)
 		if confidenceRank[m.Confidence] > confidenceRank[f.MaxConfidence] {
 			f.MaxConfidence = m.Confidence
+		}
+		if m.ReceivedAt.After(f.LastReceived) {
+			f.LastReceived = m.ReceivedAt
 		}
 	}
 	for s := range sats {

@@ -12,17 +12,13 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 )
 
-// Store adalah bagian database yang dibutuhkan pengenal kebakaran.
 type Store interface {
 	ActiveDetections(ctx context.Context) ([]Detection, error)
 	ListWildfires(ctx context.Context) ([]model.HazardEvent, error)
-	// SaveWildfire mengembalikan "created", "updated", atau "unchanged".
 	SaveWildfire(ctx context.Context, h model.HazardEvent) (string, error)
-	// Version berubah setiap kali data deteksi berubah (offset terakhir yang diterapkan).
 	Version(ctx context.Context) (int64, error)
 }
 
-// Result meringkas satu putaran penghitungan ulang.
 type Result struct {
 	Detections int
 	Fires      int
@@ -34,13 +30,31 @@ type Result struct {
 	Duration   time.Duration
 }
 
+type Observer interface {
+	FireSaved(latency time.Duration)
+	RecomputeDone(res Result)
+}
+
+type noObserver struct{}
+
+func (noObserver) FireSaved(time.Duration) {}
+func (noObserver) RecomputeDone(Result)    {}
+
 type Recognizer struct {
 	store    Store
 	log      *slog.Logger
 	now      func() time.Time
 	interval time.Duration
+	obs      Observer
 	lastVer  int64
 	hasVer   bool
+}
+
+func (r *Recognizer) WithObserver(o Observer) *Recognizer {
+	if o != nil {
+		r.obs = o
+	}
+	return r
 }
 
 func NewRecognizer(store Store, log *slog.Logger, interval time.Duration) *Recognizer {
@@ -50,12 +64,9 @@ func NewRecognizer(store Store, log *slog.Logger, interval time.Duration) *Recog
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
-	return &Recognizer{store: store, log: log, now: time.Now, interval: interval}
+	return &Recognizer{store: store, log: log, now: time.Now, interval: interval, obs: noObserver{}}
 }
 
-// Run menghitung ulang kebakaran setiap interval, tetapi hanya bila data deteksi berubah sejak putaran
-// sebelumnya. Hasilnya selalu turunan dari isi database, jadi aman dihentikan dan dinyalakan kapan saja.
-// Berhenti dengan error bila fencing menolak (bukan lagi leader).
 func (r *Recognizer) Run(ctx context.Context) error {
 	t := time.NewTicker(r.interval)
 	defer t.Stop()
@@ -77,7 +88,6 @@ func (r *Recognizer) Run(ctx context.Context) error {
 	}
 }
 
-// Tick menghitung ulang bila versi data berubah. Bila gagal, putaran berikutnya mencoba lagi.
 func (r *Recognizer) Tick(ctx context.Context) error {
 	ver, err := r.store.Version(ctx)
 	if err != nil {
@@ -98,8 +108,6 @@ func (r *Recognizer) Tick(ctx context.Context) error {
 	return nil
 }
 
-// Recompute mengklasterkan semua deteksi aktif lalu menyimpan hanya kebakaran yang baru atau berubah.
-// Kebakaran tersimpan yang tidak lagi dihasilkan ditandai ditarik (retracted), bukan dihapus.
 func (r *Recognizer) Recompute(ctx context.Context) (Result, error) {
 	start := time.Now()
 	dets, err := r.store.ActiveDetections(ctx)
@@ -121,7 +129,8 @@ func (r *Recognizer) Recompute(ctx context.Context) (Result, error) {
 	seen := make(map[string]bool, len(groups))
 
 	for _, g := range groups {
-		h := ToHazard(BuildFire(g), now)
+		f := BuildFire(g)
+		h := ToHazard(f, now)
 		seen[h.SourceRefID] = true
 		if cur, ok := byRef[h.SourceRefID]; ok && SameHazard(cur, h) {
 			res.Unchanged++
@@ -132,6 +141,11 @@ func (r *Recognizer) Recompute(ctx context.Context) (Result, error) {
 			return res, err
 		}
 		count(&res, out)
+		if (out == "created" || out == "updated") && !f.LastReceived.IsZero() {
+			if lat := r.now().Sub(f.LastReceived); lat >= 0 {
+				r.obs.FireSaved(lat)
+			}
+		}
 	}
 
 	for ref, cur := range byRef {
@@ -147,6 +161,7 @@ func (r *Recognizer) Recompute(ctx context.Context) (Result, error) {
 		}
 	}
 	res.Duration = time.Since(start)
+	r.obs.RecomputeDone(res)
 	return res, nil
 }
 
@@ -166,7 +181,6 @@ func isRetracted(h model.HazardEvent) bool {
 	return v
 }
 
-// retractedCopy menandai kebakaran sebagai ditarik: severity NORMAL dan attributes.retracted = true.
 func retractedCopy(h model.HazardEvent) model.HazardEvent {
 	attrs := make(map[string]any, len(h.Attributes)+1)
 	for k, v := range h.Attributes {
@@ -178,7 +192,6 @@ func retractedCopy(h model.HazardEvent) model.HazardEvent {
 	return h
 }
 
-// SameHazard membandingkan isi yang bisa berubah antara dua versi kebakaran yang sama.
 func SameHazard(a, b model.HazardEvent) bool {
 	if a.Severity != b.Severity || a.AreaName != b.AreaName ||
 		a.Latitude != b.Latitude || a.Longitude != b.Longitude || !a.OccurredAt.Equal(b.OccurredAt) {

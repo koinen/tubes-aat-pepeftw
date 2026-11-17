@@ -26,3 +26,7 @@ func (w wildfireStore) SaveWildfire(ctx context.Context, h model.HazardEvent) (s
 func (w wildfireStore) Version(ctx context.Context) (int64, error) {
 	return w.repo.DetectionVersion(ctx)
 }
+
+func (w wildfireStore) Progress(ctx context.Context) (satellite.Progress, error) {
+	return w.repo.Progress(ctx)
+}
