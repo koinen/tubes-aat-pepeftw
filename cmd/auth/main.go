@@ -15,6 +15,8 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	recoverer "github.com/gofiber/fiber/v3/middleware/recover"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 func main() {
@@ -27,9 +29,15 @@ func main() {
 	onError := common.ErrorHandler(logger)
 
 	ctx := context.Background()
+	shutdownTracing, err := telemetry.Init(ctx, "auth")
+	if err != nil {
+		logger.Error("tracing_init_failed", "error", err.Error())
+		os.Exit(1)
+	}
+	defer shutdownTracing(context.Background())
 
 	app := fiber.New(fiber.Config{ErrorHandler: onError})
-	app.Use(common.CorrelationID, common.RequestLogger(logger, onError), recoverer.New())
+	app.Use(telemetry.Middleware(), common.CorrelationID, common.RequestLogger(logger, onError), recoverer.New())
 
 	redisClient, err := redis.Connect(ctx, config.Redis)
 	if err != nil {
@@ -55,6 +63,7 @@ func main() {
 	app.Get("/.well-known/jwks.json", tokenHandler.JWKS)
 
 	app.Get("/health", healthHandler.HealthCheck)
+	app.Get("/metrics", telemetry.MetricsHandler())
 
 	logger.Info("Starting Auth service", "port", config.Server.Port)
 	if err := app.Listen(":" + config.Server.Port); err != nil {

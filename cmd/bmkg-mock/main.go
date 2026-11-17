@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const serviceName = "bmkg-mock"
@@ -81,6 +83,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, err := telemetry.Init(ctx, serviceName)
+	if err != nil {
+		log.Error("tracing_init_failed", "error", err.Error())
+		os.Exit(1)
+	}
+	defer shutdownTracing(context.Background())
 	go runGenerator(ctx, store, cfg.EventInterval, cfg.TsunamiRate, log)
 
 	app := newApp(cfg, store, log)
@@ -105,7 +113,8 @@ func newApp(cfg Config, store *Store, log *slog.Logger) *fiber.App {
 		ReadTimeout:  30 * time.Second,
 		ErrorHandler: errorHandler,
 	})
-	app.Use(correlationMiddleware(log))
+	app.Use(telemetry.Middleware(), correlationMiddleware(log))
+	app.Get("/metrics", telemetry.MetricsHandler())
 
 	app.Get("/health", func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok", "service": serviceName})

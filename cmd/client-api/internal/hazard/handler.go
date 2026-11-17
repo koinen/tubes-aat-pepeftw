@@ -34,7 +34,7 @@ func (h *Handler) ListHazards(c fiber.Ctx) error {
 
 	path := "/internal/hazards" + buildQuery(c)
 
-	result, statusCode, err := h.agg.Get(path, corrID)
+	result, statusCode, err := h.agg.Get(c.Context(), path, corrID)
 	if err != nil {
 		c.Set("Retry-After", "5")
 		return common.WriteError(c, fiber.StatusServiceUnavailable,
@@ -77,7 +77,7 @@ func (h *Handler) GetHazard(c fiber.Ctx) error {
 
 	path := "/internal/hazards/" + url.PathEscape(hazardID)
 
-	result, statusCode, err := h.agg.Get(path, corrID)
+	result, statusCode, err := h.agg.Get(c.Context(), path, corrID)
 	if err != nil {
 		c.Set("Retry-After", "5")
 		return common.WriteError(c, fiber.StatusServiceUnavailable,
