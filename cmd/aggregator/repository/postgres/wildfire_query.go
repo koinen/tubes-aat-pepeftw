@@ -1,0 +1,69 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+
+	"tubes-aat-pepeftw/cmd/aggregator/model"
+	"tubes-aat-pepeftw/cmd/aggregator/satellite"
+)
+
+const selectActiveDetections = `
+SELECT detection_key, COALESCE(satellite, ''), acq_time, latitude, longitude,
+       COALESCE(confidence, ''), COALESCE(frp, 0)
+FROM satellite_detection
+WHERE NOT retracted AND COALESCE(confidence, '') <> 'l'`
+
+const selectWildfires = selectHazardColumns + `
+WHERE source = 'SATELIT' AND hazard_type = 'WILDFIRE'`
+
+func (p *PostgresRepository) ActiveDetections(ctx context.Context) ([]satellite.Detection, error) {
+	rows, err := p.pool.Query(ctx, selectActiveDetections)
+	if err != nil {
+		return nil, fmt.Errorf("active detections: %w", err)
+	}
+	defer rows.Close()
+
+	var out []satellite.Detection
+	for rows.Next() {
+		var d satellite.Detection
+		if err := rows.Scan(&d.Key, &d.Satellite, &d.AcqTime, &d.Latitude, &d.Longitude, &d.Confidence, &d.FRP); err != nil {
+			return nil, fmt.Errorf("active detections: %w", err)
+		}
+		d.AcqTime = d.AcqTime.UTC()
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("active detections: %w", err)
+	}
+	return out, nil
+}
+
+func (p *PostgresRepository) ListWildfires(ctx context.Context) ([]model.HazardEvent, error) {
+	rows, err := p.pool.Query(ctx, selectWildfires)
+	if err != nil {
+		return nil, fmt.Errorf("list wildfires: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.HazardEvent
+	for rows.Next() {
+		h, err := scanHazard(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list wildfires: %w", err)
+		}
+		out = append(out, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list wildfires: %w", err)
+	}
+	return out, nil
+}
+
+func (p *PostgresRepository) DetectionVersion(ctx context.Context) (int64, error) {
+	var v int64
+	if err := p.pool.QueryRow(ctx, `SELECT COALESCE(max(last_offset), -1) FROM satellite_detection`).Scan(&v); err != nil {
+		return 0, fmt.Errorf("detection version: %w", err)
+	}
+	return v, nil
+}
