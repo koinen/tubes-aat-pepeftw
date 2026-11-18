@@ -182,7 +182,7 @@ Jalankan `sh scripts/demo/setup.sh` terlebih dahulu. Laporan HTML hasil Hurl ter
 
 | Problem | Perintah | Yang dibuktikan |
 |---|---|---|
-| P1: Perubahan skema PVMBG | `sh scripts/demo/run-p1.sh` | Skema PVMBG diganti dari v1 ke v2 saat sistem berjalan. Aggregator tetap menerima data tanpa restart; field baru (`confidence_level`) masuk ke `attributes`; data tidak valid masuk `rejected_records`. |
+| P1: Perubahan skema PVMBG | `sh scripts/demo/run-p1.sh` | Skema PVMBG diganti dari v1 ke v2 saat sistem berjalan. Aggregator tetap menerima data tanpa restart; field baru (`confidence_level`) masuk ke `attributes`; data tidak valid masuk `unprocessed_messages` sebagai `parked`. |
 | P2: Sumber lambat/mati | `sh scripts/demo/run-p2.sh` | PVMBG dibuat *outage*; PVMBG menjadi `STALE` dengan *breaker* `OPEN`, BMKG tetap `OK`, lalu PVMBG pulih sendiri. Juga menguji *rate limit* (`429`). |
 | P3: Autentikasi dan otorisasi | `sh scripts/demo/run-p3.sh` | Kredensial antarsumber ditolak, *scope* per klien, *refresh token* berotasi, pencabutan token lewat Kafka, dan tidak ada rahasia di riwayat git. |
 | P4: Microservice dan penyimpanan fleksibel | Demo manual (lihat di bawah) | Satu service dapat di-*build* dan di-*deploy* ulang tanpa menghentikan service lain; field baru tersimpan di kolom JSONB `attributes` tanpa migrasi tabel. |

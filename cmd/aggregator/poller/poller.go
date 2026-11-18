@@ -12,13 +12,13 @@ import (
 )
 
 type Deps struct {
-	Hazards   repository.HazardWriter
-	Rejected  repository.RejectedRepository
-	Cursors   repository.CursorRepository
-	Statuses  repository.SourceStatusRepository
-	Volcanoes repository.VolcanoRefRepository
-	Log       *slog.Logger
-	Now       func() time.Time
+	Hazards     repository.HazardWriter
+	Unprocessed repository.UnprocessedWriter
+	Cursors     repository.CursorRepository
+	Statuses    repository.SourceStatusRepository
+	Volcanoes   repository.VolcanoRefRepository
+	Log         *slog.Logger
+	Now         func() time.Time
 }
 
 type Poller struct {

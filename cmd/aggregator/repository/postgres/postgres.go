@@ -15,7 +15,6 @@ var (
 	_ repository.AnalyticsReader        = (*PostgresRepository)(nil)
 	_ repository.CursorRepository       = (*PostgresRepository)(nil)
 	_ repository.SourceStatusRepository = (*PostgresRepository)(nil)
-	_ repository.RejectedRepository     = (*PostgresRepository)(nil)
 	_ repository.OutboxRepository       = (*PostgresRepository)(nil)
 )
 
