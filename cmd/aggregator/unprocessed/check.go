@@ -2,51 +2,16 @@ package unprocessed
 
 import (
 	"fmt"
-	"unicode/utf8"
 
-	"tubes-aat-pepeftw/cmd/aggregator/model"
+	"tubes-aat-pepeftw/internal/poison"
 )
 
-// MaxDepth is the deepest JSON nesting a source body may have. Real responses are under 5 levels.
-const MaxDepth = 32
+// MaxDepth is the deepest JSON nesting a source body may have (see internal/poison).
+const MaxDepth = poison.MaxDepth
 
-// Error is a poison verdict about a body as a whole.
-type Error struct {
-	Code   model.ReasonCode
-	Detail string
-}
-
-func (e *Error) Error() string { return string(e.Code) + ": " + e.Detail }
-
-// Check rejects a body that must not be decoded: invalid UTF-8 (encoding/json would silently
-// replace it), or nesting deeper than MaxDepth. It scans without allocating.
-func Check(body []byte) error {
-	if !utf8.Valid(body) {
-		return &Error{Code: model.ReasonInvalidUTF8, Detail: "body bukan UTF-8 yang valid"}
-	}
-	depth, inString, escaped := 0, false, false
-	for i, c := range body {
-		switch {
-		case escaped:
-			escaped = false
-		case inString:
-			if c == '\\' {
-				escaped = true
-			} else if c == '"' {
-				inString = false
-			}
-		case c == '"':
-			inString = true
-		case c == '{' || c == '[':
-			if depth++; depth > MaxDepth {
-				return &Error{Code: model.ReasonTooDeep, Detail: fmt.Sprintf("nesting lebih dari %d level (byte %d)", MaxDepth, i)}
-			}
-		case c == '}' || c == ']':
-			depth--
-		}
-	}
-	return nil
-}
+// Check rejects a body that must not be decoded: invalid UTF-8 or nesting deeper than MaxDepth.
+// Its *poison.Error becomes the reason code of the same name (see classify).
+func Check(body []byte) error { return poison.Check(body) }
 
 // Oversized is a response body larger than Limit. Only its first PrefixSize bytes were kept;
 // the rest was streamed through the hash.

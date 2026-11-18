@@ -9,4 +9,5 @@ data:
   KAFKA_BROKERS: kafka:9092
   KAFKA_TOPIC_HAZARD_EVENTS: hazard-events
   KAFKA_TOPIC_AUTH_REVOCATIONS: auth-revocations
+  KAFKA_TOPIC_FIELD_REPORTS: field-reports
   OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318

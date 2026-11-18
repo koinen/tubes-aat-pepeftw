@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"tubes-aat-pepeftw/cmd/aggregator/config"
+	"tubes-aat-pepeftw/cmd/aggregator/fieldreport"
 	"tubes-aat-pepeftw/cmd/aggregator/httpapi"
 	"tubes-aat-pepeftw/cmd/aggregator/kafka"
 	"tubes-aat-pepeftw/cmd/aggregator/leader"
@@ -113,6 +114,21 @@ func run(log *slog.Logger) error {
 	defer func() {
 		stop()
 		<-relayDone
+	}()
+
+	// Every pod consumes field reports, outside leader election; the writes are unfenced and idempotent.
+	reports, err := fieldreport.NewConsumer(cfg.KafkaBrokers, cfg.FieldReportsTopic, fieldreport.NewHandler(repo, log), log)
+	if err != nil {
+		return err
+	}
+	reportsDone := make(chan struct{})
+	go func() {
+		defer close(reportsDone)
+		reports.Run(ctx)
+	}()
+	defer func() {
+		stop()
+		<-reportsDone
 	}()
 
 	// Only PVMBG can be replayed (see docs: replayable sources).

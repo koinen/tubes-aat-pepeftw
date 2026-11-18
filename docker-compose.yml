@@ -57,6 +57,7 @@ services:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_AUTH_REVOCATIONS: ${KAFKA_TOPIC_AUTH_REVOCATIONS}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_CLIENT_API_REVOCATIONS}
+      KAFKA_TOPIC_FIELD_REPORTS: ${KAFKA_TOPIC_FIELD_REPORTS:-field-reports}
       AGGREGATOR_URL: http://aggregator:8080
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       OPS_TOKEN: ${OPS_TOKEN:-}
@@ -148,6 +149,7 @@ services:
       DB_NAME: ${DB_NAME}
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_TOPIC_FIELD_REPORTS: ${KAFKA_TOPIC_FIELD_REPORTS:-field-reports}
       POLLER_ENABLED: ${POLLER_ENABLED:-true}
       BMKG_URL: http://bmkg-mock:8080
       BMKG_API_KEY: ${BMKG_API_KEY}
@@ -303,6 +305,7 @@ services:
         B=kafka:9092
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic hazard-events --partitions 3 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic auth-revocations --partitions 1 --replication-factor 1 --config retention.ms=600000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic field-reports --partitions 3 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --describe
     restart: "no"
 

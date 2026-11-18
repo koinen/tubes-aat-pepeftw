@@ -21,6 +21,9 @@ type Config struct {
 	OpsToken       string
 	FastRead       time.Duration
 	ShardRead      time.Duration
+
+	// FieldReportsTopic is consumed by every pod into field_reports.
+	FieldReportsTopic string
 }
 
 func Load() (Config, error) {
@@ -54,6 +57,8 @@ func Load() (Config, error) {
 		OpsToken:       os.Getenv("OPS_TOKEN"),
 		FastRead:       fastRead,
 		ShardRead:      shardRead,
+
+		FieldReportsTopic: getenv("KAFKA_TOPIC_FIELD_REPORTS", "field-reports"),
 	}
 
 	if cfg.InternalAPIKey == "" {

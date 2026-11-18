@@ -73,3 +73,22 @@ type ReplayJobs interface {
 	// ReplayJob returns a job by id. found is false for an unknown id.
 	ReplayJob(ctx context.Context, jobID string) (job model.ReplayJob, found bool, err error)
 }
+
+// FieldReportResult is what saving a field report found.
+type FieldReportResult string
+
+const (
+	// FieldReportInserted: the report is stored now.
+	FieldReportInserted FieldReportResult = "inserted"
+	// FieldReportDuplicate: the same report was already stored (same report_id, same body_sha256).
+	FieldReportDuplicate FieldReportResult = "duplicate"
+	// FieldReportConflict: another body is stored under the same report_id. It is kept.
+	FieldReportConflict FieldReportResult = "conflict"
+)
+
+// FieldReportWriter stores field reports. Writes are not fenced: every aggregator pod consumes.
+type FieldReportWriter interface {
+	// SaveFieldReport inserts r unless its report_id is already stored, and compares the stored
+	// body_sha256 when it is.
+	SaveFieldReport(ctx context.Context, r model.FieldReport) (FieldReportResult, error)
+}
