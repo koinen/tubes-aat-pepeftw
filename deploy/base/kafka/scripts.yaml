@@ -56,4 +56,9 @@ data:
       --config retention.ms=604800000 \
       --config max.message.bytes=2097152 \
       --config min.insync.replicas="$TOPIC_MIN_INSYNC_REPLICAS"
+    "$topics" --bootstrap-server "$KAFKA_BROKERS" --create --if-not-exists \
+      --topic "$KAFKA_TOPIC_FIELD_TEAM_RECEIPTS" --partitions 3 \
+      --replication-factor "$TOPIC_REPLICATION_FACTOR" \
+      --config retention.ms=604800000 \
+      --config min.insync.replicas="$TOPIC_MIN_INSYNC_REPLICAS"
     "$topics" --bootstrap-server "$KAFKA_BROKERS" --describe

@@ -21,6 +21,7 @@ resources:
   - networkpolicy/auth-store.yaml
   - networkpolicy/client-api-store.yaml
   - networkpolicy/sensor-pantai.yaml
+  - networkpolicy/field-team-receiver.yaml
   - sensor-pantai/manifest.yaml
   - sensor-pantai/service.yaml
   - aggregator/rbac.yaml
@@ -37,6 +38,8 @@ resources:
   - notifier/configmap.yaml
   - notifier/deployment.yaml
   - notifier/service.yaml
+  - field-team-receiver/deployment.yaml
+  - field-team-receiver/service.yaml
   - audit-log/configmap.yaml
   - audit-log/deployment.yaml
   - audit-log/service.yaml
@@ -85,3 +88,10 @@ patches:
               prometheus.io/scrape: "true"
               prometheus.io/port: "8080"
               prometheus.io/path: /metrics
+  - target:
+      kind: Deployment
+      name: field-team-receiver
+    patch: |-
+      - op: replace
+        path: /spec/template/metadata/annotations/prometheus.io~1port
+        value: "9090"

@@ -11,4 +11,5 @@ data:
   KAFKA_TOPIC_AUTH_REVOCATIONS: auth-revocations
   KAFKA_TOPIC_FIELD_REPORTS: field-reports
   KAFKA_TOPIC_UNPROCESSED: unprocessed
+  KAFKA_TOPIC_FIELD_TEAM_RECEIPTS: field-team-receipts
   OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318

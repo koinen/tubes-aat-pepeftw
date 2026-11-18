@@ -62,7 +62,7 @@ deploy_all() {
 
   wait_rollouts deployment sensor-pantai
   apply_stage apps
-  wait_rollouts deployment aggregator auth client-api notifier dashboard-updater bmkg-mock pvmbg-mock analytics-dashboard
+  wait_rollouts deployment aggregator auth client-api notifier field-team-receiver dashboard-updater bmkg-mock pvmbg-mock analytics-dashboard
 }
 
 health_check() {

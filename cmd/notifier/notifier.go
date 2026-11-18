@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -9,22 +10,16 @@ import (
 	"tubes-aat-pepeftw/internal/poison"
 )
 
-type outcome string
-
-const (
-	outcomeSent      outcome = "sent"
-	outcomeIgnored   outcome = "ignored"
-	outcomeDuplicate outcome = "duplicate"
-)
-
 type notifier struct {
 	seen *seenStore
 	log  *slog.Logger
 	now  func() time.Time
+
+	webhookURL string
 }
 
-func newNotifier(seen *seenStore, log *slog.Logger) *notifier {
-	return &notifier{seen: seen, log: log, now: time.Now}
+func newNotifier(seen *seenStore, log *slog.Logger, webhookURL string) *notifier {
+	return &notifier{seen: seen, log: log, now: time.Now, webhookURL: webhookURL}
 }
 
 // decode reads a hazard-events value. A value it refuses goes to topic unprocessed, under the
@@ -34,8 +29,18 @@ func decode(value []byte) (hazardMessage, error) {
 	if err := poison.Check(value); err != nil {
 		return msg, err
 	}
-	if err := json.Unmarshal(value, &msg); err != nil {
+	envelope := struct {
+		*hazardMessage
+		Payload json.RawMessage `json:"payload"`
+	}{hazardMessage: &msg}
+	if err := json.Unmarshal(value, &envelope); err != nil {
 		return msg, err
+	}
+	msg.rawPayload = envelope.Payload
+	if len(msg.rawPayload) > 0 {
+		if err := json.Unmarshal(msg.rawPayload, &msg.Payload); err != nil {
+			return msg, err
+		}
 	}
 	if msg.HazardID == "" {
 		return msg, errors.New("missing hazard_id")
@@ -43,18 +48,22 @@ func decode(value []byte) (hazardMessage, error) {
 	return msg, nil
 }
 
-func (n *notifier) handle(msg hazardMessage, correlationID string) outcome {
+func (n *notifier) handle(ctx context.Context, msg hazardMessage, correlationID string) error {
 	attrs := []any{
 		"correlation_id", correlationID, "hazard_id", msg.HazardID,
 		"event_id", msg.EventID, "severity", msg.Payload.Severity,
 	}
 	if n.seen.Has(msg.HazardID) {
 		n.log.Info("duplicate_skipped", attrs...)
-		return outcomeDuplicate
+		return nil
 	}
 
-	result := outcomeIgnored
 	if isAlert(msg.Payload.Severity) {
+		if n.webhookURL != "" {
+			if err := n.deliver(ctx, msg, attrs); err != nil {
+				return err
+			}
+		}
 		n.log.Info("notification_sent", append(attrs,
 			"hazard_type", msg.Payload.HazardType,
 			"area_name", msg.Payload.AreaName,
@@ -63,7 +72,6 @@ func (n *notifier) handle(msg hazardMessage, correlationID string) outcome {
 			"channel", "field-team",
 			"delivery_lag_ms", n.now().Sub(msg.EmittedAt).Milliseconds(),
 		)...)
-		result = outcomeSent
 	} else {
 		n.log.Info("hazard_ignored", attrs...)
 	}
@@ -71,7 +79,7 @@ func (n *notifier) handle(msg hazardMessage, correlationID string) outcome {
 	if err := n.seen.Add(msg.HazardID); err != nil {
 		n.log.Error("dedup_persist_failed", append(attrs, "error", err.Error())...)
 	}
-	return result
+	return nil
 }
 
 func isAlert(severity string) bool {
