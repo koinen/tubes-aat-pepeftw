@@ -44,7 +44,12 @@ paths:
       operationId: setSchemaVersion
       security:
         - AdminKey: []
-      description: Berlaku instan tanpa restart. Versi 2 menambahkan confidence_level pada laporan yang dibuat setelah perubahan. Laporan lama tidak berubah. Tetap berfungsi saat outage.
+      description: >-
+        Berlaku instan tanpa restart dan tetap berfungsi saat outage. Setiap laporan memakai versi yang aktif saat laporan dibuat;
+        laporan lama tidak berubah, termasuk saat versi dikembalikan. Versi 1 skema dasar. Versi 2 menambahkan confidence_level
+        (perubahan kompatibel). Versi 3 sampai 5 dibangun di atas versi 2 dan merupakan perubahan tidak kompatibel:
+        3 mengganti nama alert_level menjadi alert_status, 4 mengirim eruption_count_24h sebagai string (contoh "12"),
+        5 menghilangkan field wajib ash_column_height_m.
       requestBody:
         required: true
         content:
@@ -55,7 +60,7 @@ paths:
               properties:
                 version:
                   type: integer
-                  enum: [1, 2]
+                  enum: [1, 2, 3, 4, 5]
       responses:
         '200':
           description: OK
@@ -170,11 +175,14 @@ components:
           format: date-time
     AdminState:
       type: object
-      required: [schema_version, outage]
+      required: [schema_version, schema_mode, outage]
       properties:
         schema_version:
           type: integer
-          enum: [1, 2]
+          enum: [1, 2, 3, 4, 5]
+        schema_mode:
+          type: string
+          enum: [base, additive_optional_field, rename_field, type_change, missing_required_field]
         outage:
           type: object
           required: [enabled]

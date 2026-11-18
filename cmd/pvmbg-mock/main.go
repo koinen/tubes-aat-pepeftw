@@ -77,8 +77,8 @@ func loadConfig() (Config, error) {
 		return cfg, fmt.Errorf("PVMBG_HANG_MAX harus > 0")
 	case cfg.SeedCount < 20:
 		return cfg, fmt.Errorf("PVMBG_SEED_COUNT minimal 20 (spesifikasi)")
-	case cfg.SchemaVersion != 1 && cfg.SchemaVersion != 2:
-		return cfg, fmt.Errorf("PVMBG_SCHEMA_VERSION harus 1 atau 2")
+	case !validSchemaVersion(cfg.SchemaVersion):
+		return cfg, fmt.Errorf("PVMBG_SCHEMA_VERSION: %s", schemaVersionHelp)
 	}
 	return cfg, nil
 }
@@ -162,12 +162,12 @@ func newApp(ctx context.Context, cfg Config, store *Store, state *State, log *sl
 		var body struct {
 			Version *int `json:"version"`
 		}
-		if err := json.Unmarshal(c.Body(), &body); err != nil || body.Version == nil ||
-			(*body.Version != 1 && *body.Version != 2) {
-			return sendError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", `body harus {"version": 1} atau {"version": 2}`)
+		if err := json.Unmarshal(c.Body(), &body); err != nil || body.Version == nil || !validSchemaVersion(*body.Version) {
+			return sendError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", `body harus {"version": N}; `+schemaVersionHelp)
 		}
 		state.SetSchemaVersion(*body.Version)
-		log.Info("schema_version_changed", "correlation_id", correlationID(c), "schema_version", *body.Version)
+		log.Info("schema_version_changed", "correlation_id", correlationID(c), "schema_version", *body.Version,
+			"schema_mode", schemaModes[*body.Version])
 		return c.JSON(state.Snapshot())
 	})
 	app.Post("/admin/outage", admin, func(c fiber.Ctx) error {

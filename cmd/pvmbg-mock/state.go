@@ -65,13 +65,14 @@ type adminOutage struct {
 
 type adminState struct {
 	SchemaVersion int         `json:"schema_version"`
+	SchemaMode    string      `json:"schema_mode"`
 	Outage        adminOutage `json:"outage"`
 }
 
 func (s *State) Snapshot() adminState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return adminState{SchemaVersion: s.schemaVersion, Outage: adminOutage{Enabled: s.outageEnabled, Mode: s.outageMode}}
+	return adminState{SchemaVersion: s.schemaVersion, SchemaMode: schemaModes[s.schemaVersion], Outage: adminOutage{Enabled: s.outageEnabled, Mode: s.outageMode}}
 }
 
 func waitWhileHanging(ctx context.Context, recovered <-chan struct{}, max time.Duration) bool {

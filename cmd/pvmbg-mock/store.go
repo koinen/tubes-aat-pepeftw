@@ -20,7 +20,8 @@ type VolcanicReport struct {
 	ReportedAt       string   `json:"reported_at"`
 	ConfidenceLevel  *float64 `json:"confidence_level,omitempty"`
 
-	reportedAt time.Time 
+	reportedAt    time.Time
+	schemaVersion int
 }
 
 var volcanoIDs = []struct {
@@ -91,7 +92,7 @@ func round(v float64, places int) float64 {
 	return math.Round(v*p) / p
 }
 
-func (g *Generator) make(at time.Time, reportID string, withConfidence bool) VolcanicReport {
+func (g *Generator) make(at time.Time, reportID string, schemaVersion int) VolcanicReport {
 	v := volcanoIDs[g.rng.IntN(len(volcanoIDs))]
 
 	lvl := g.levels[v.id]
@@ -126,8 +127,9 @@ func (g *Generator) make(at time.Time, reportID string, withConfidence bool) Vol
 		AshColumnHeightM: ash,
 		ReportedAt:       ts.Format(time.RFC3339),
 		reportedAt:       ts,
+		schemaVersion:    schemaVersion,
 	}
-	if withConfidence {
+	if schemaVersion >= schemaAdditive {
 		c := round(0.5+g.rng.Float64()*0.49, 2)
 		r.ConfidenceLevel = &c
 	}
@@ -142,7 +144,7 @@ func seed(s *Store, count int) *Generator {
 	for i := 1; i <= count; i++ {
 		at := seedBase.Add(span * time.Duration(i) / time.Duration(count+1))
 		at = at.Add(time.Duration(g.rng.IntN(3600)) * time.Second)
-		s.add(g.make(at, fmt.Sprintf("PVMBG-VR-SEED-%03d", i), false))
+		s.add(g.make(at, fmt.Sprintf("PVMBG-VR-SEED-%03d", i), schemaBase))
 	}
 	return g
 }
@@ -157,10 +159,11 @@ func runGenerator(ctx context.Context, s *Store, g *Generator, st *State, interv
 			return
 		case now := <-t.C:
 			id := fmt.Sprintf("PVMBG-VR-%s-%04x", now.UTC().Format("20060102T150405"), g.rng.IntN(0x10000))
-			r := g.make(now, id, st.SchemaVersion() == 2)
+			version := st.SchemaVersion()
+			r := g.make(now, id, version)
 			s.add(r)
 			log.Info("volcanic_report_generated", "report_id", r.ReportID, "volcano_id", r.VolcanoID,
-				"alert_level", r.AlertLevel, "schema_version", st.SchemaVersion())
+				"alert_level", r.AlertLevel, "schema_version", version, "schema_mode", schemaModes[version])
 		}
 	}
 }
