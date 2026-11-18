@@ -8,6 +8,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	recoverer "github.com/gofiber/fiber/v3/middleware/recover"
 
+	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
 
 	"tubes-aat-pepeftw/internal/telemetry"
@@ -22,7 +23,13 @@ type Deps struct {
 	KafkaPing    func(context.Context) error
 	InternalKey  string
 	AuditToken   string
-	Log          *slog.Logger
+	// Replay and ReplayRules serve the replay API. ReplayRules holds, per replayable source, the
+	// canonical adaptation rules of this pod; a source without an entry cannot be replayed.
+	Replay      repository.ReplayJobs
+	ReplayRules map[model.Source]string
+	// OpsToken guards the replay API. Only client-api holds it; the audit token cannot call it.
+	OpsToken string
+	Log      *slog.Logger
 }
 
 type handlers struct {
@@ -30,22 +37,29 @@ type handlers struct {
 	statuses      repository.SourceStatusRepository
 	audit         repository.AuditReader
 	analyticsRepo repository.AnalyticsReader
+	replay        repository.ReplayJobs
+	replayRules   map[model.Source]string
 }
 
 func New(d Deps) *fiber.App {
 	onError := errorHandler(d.Log)
 	app := fiber.New(fiber.Config{ErrorHandler: onError})
-	h := handlers{hazards: d.Hazards, statuses: d.Statuses, audit: d.Audit, analyticsRepo: d.Analytics}
+	h := handlers{hazards: d.Hazards, statuses: d.Statuses, audit: d.Audit, analyticsRepo: d.Analytics,
+		replay: d.Replay, replayRules: d.ReplayRules}
 
 	app.Use(telemetry.Middleware(), correlationID, requestLogger(d.Log, onError), recoverer.New())
 	app.Get("/health", health(d.PostgresPing, d.KafkaPing))
 	app.Get("/metrics", telemetry.MetricsHandler())
 
-	audit := app.Group(auditPrefix, requireAuditToken(d.AuditToken))
+	audit := app.Group(auditPrefix, requireBearerToken(d.AuditToken))
 	audit.Get("/events", h.auditEvents)
 	audit.Get("/checksum", h.auditChecksum)
 	audit.Get("/location", h.auditLocation)
 	audit.Get("/unprocessed", h.auditUnprocessed)
+
+	replay := app.Group(replayPrefix, requireBearerToken(d.OpsToken))
+	replay.Post("", h.requestReplay)
+	replay.Get("/:job_id", h.getReplayJob)
 
 	internalKey := requireInternalKey(d.InternalKey)
 	app.Get("/internal/hazards", internalKey, h.listHazards)

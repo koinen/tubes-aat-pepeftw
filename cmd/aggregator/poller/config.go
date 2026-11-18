@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"tubes-aat-pepeftw/cmd/aggregator/mapper"
 )
 
 type Config struct {
@@ -26,6 +28,9 @@ type Config struct {
 	BreakerOpenFor  time.Duration
 
 	TsunamiGrace time.Duration
+
+	// PVMBGAdaptations are the declared rules for breaking PVMBG schema versions (PVMBG_ADAPTATIONS).
+	PVMBGAdaptations mapper.VolcanicAdaptations
 }
 
 func LoadConfig() (Config, error) {
@@ -61,6 +66,11 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.BreakerFailures, err = strconv.Atoi(getenv("BREAKER_FAILURES", "3")); err != nil || cfg.BreakerFailures < 1 {
 		return cfg, errors.New("BREAKER_FAILURES must be a positive integer")
+	}
+
+	// Parsed on every pod, poller or not: every pod accepts a replay request and records its rules.
+	if cfg.PVMBGAdaptations, err = mapper.ParseVolcanicAdaptations(os.Getenv("PVMBG_ADAPTATIONS")); err != nil {
+		return cfg, err
 	}
 
 	if !cfg.Enabled {

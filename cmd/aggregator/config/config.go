@@ -18,6 +18,7 @@ type Config struct {
 	HazardTopic    string
 	RelayInterval  time.Duration
 	AuditToken     string
+	OpsToken       string
 	FastRead       time.Duration
 	ShardRead      time.Duration
 }
@@ -50,6 +51,7 @@ func Load() (Config, error) {
 		HazardTopic:    getenv("KAFKA_TOPIC_HAZARD_EVENTS", "hazard-events"),
 		RelayInterval:  interval,
 		AuditToken:     os.Getenv("AUDIT_TOKEN"),
+		OpsToken:       os.Getenv("OPS_TOKEN"),
 		FastRead:       fastRead,
 		ShardRead:      shardRead,
 	}

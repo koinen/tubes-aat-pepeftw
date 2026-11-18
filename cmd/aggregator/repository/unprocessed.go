@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 )
@@ -22,4 +23,53 @@ type RetryQueue interface {
 	RetryFailed(ctx context.Context, messageID string) error
 	// ParkRetry moves a retrying message to parked with the given reason.
 	ParkRetry(ctx context.Context, messageID, reason string) error
+}
+
+// ReplayOutcome is what a replay job did with one parked row.
+type ReplayOutcome string
+
+const (
+	// ReplayRecovered saves Message.Hazard with its outbox event (correlation_id =
+	// Message.CorrelationID) and marks the row recovered, attempts + 1.
+	ReplayRecovered ReplayOutcome = "recovered"
+	// ReplayStillParked keeps the row parked: attempts + 1, last_attempt_at = now(), and
+	// Message.Reason as the latest failure.
+	ReplayStillParked ReplayOutcome = "still_parked"
+	// ReplayHandedToRetry moves the row parked → retrying with Message.Hazard,
+	// Message.CorrelationID and Message.Reason, attempts + 1, due in 5 s.
+	ReplayHandedToRetry ReplayOutcome = "handed_to_retry"
+	// ReplayNotReplayable leaves a truncated row unchanged.
+	ReplayNotReplayable ReplayOutcome = "not_replayable"
+)
+
+// ReplayStep is one row's result in a replay job.
+type ReplayStep struct {
+	Message model.UnprocessedMessage
+	Outcome ReplayOutcome
+}
+
+// ReplayQueue is the replay runner's view of replay_requests and parked unprocessed messages.
+// Every write is fenced by the leader epoch.
+type ReplayQueue interface {
+	// NextJob returns the running job if there is one, otherwise the oldest queued job.
+	NextJob(ctx context.Context) (job model.ReplayJob, found bool, err error)
+	// StartJob moves a queued job to running and sets started_at.
+	StartJob(ctx context.Context, jobID string) error
+	// ParkedPage returns up to limit parked messages of source received at or before cutoff and
+	// after the position, in (received_at, message_id) order.
+	ParkedPage(ctx context.Context, source model.Source, cutoff time.Time, after model.ReplayPosition, limit int) ([]model.UnprocessedMessage, error)
+	// RecordStep applies a step to its row, adds it to the job's counters, and moves the job's
+	// position to the row, in one transaction.
+	RecordStep(ctx context.Context, jobID string, step ReplayStep) error
+	// FinishJob ends a job as done or failed (errText says why) and sets finished_at.
+	FinishJob(ctx context.Context, jobID string, status model.ReplayStatus, errText string) error
+}
+
+// ReplayJobs is the replay API's view of replay_requests.
+type ReplayJobs interface {
+	// RequestReplay creates a queued job for source, or returns the source's active (queued or
+	// running) job, so a second request while one is active gets the same job.
+	RequestReplay(ctx context.Context, source model.Source, requestedBy, adaptations string) (model.ReplayJob, error)
+	// ReplayJob returns a job by id. found is false for an unknown id.
+	ReplayJob(ctx context.Context, jobID string) (job model.ReplayJob, found bool, err error)
 }

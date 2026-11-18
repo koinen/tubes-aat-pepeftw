@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -77,6 +78,28 @@ func TestRecordOverOneMiBIsStoredTruncated(t *testing.T) {
 	}
 	if m.Reason != "too_large: record 1048577 bytes > 1048576, disimpan 65536 byte pertama; schema_incompatible: alert_level hilang" {
 		t.Errorf("reason %q", m.Reason)
+	}
+}
+
+// A whole response between 1 and 10 MiB that is not valid JSON keeps its real code: too_large is
+// only for a record. It is still stored truncated, so replay counts it not_replayable.
+func TestLargeMalformedResponseKeepsItsRealCode(t *testing.T) {
+	body := append([]byte(`{"reports":[`), bytes.Repeat([]byte(" "), 2<<20)...)
+	cause := json.Unmarshal(body, &struct{}{})
+
+	m := BuildResponse(model.SourcePVMBG, mapper.EndpointVolcanicReports, body, cause, now)
+
+	if m.Code != model.ReasonMalformedJSON || m.Status != model.StatusParked {
+		t.Errorf("code %q status %q, want malformed_json/parked", m.Code, m.Status)
+	}
+	if m.Reason != "malformed_json: unexpected end of JSON input; respons 2097164 bytes > 1048576, disimpan 65536 byte pertama" {
+		t.Errorf("reason %q", m.Reason)
+	}
+	if len(m.Payload) != 64<<10 || m.PayloadSize != 2<<20+12 {
+		t.Errorf("stored %d of %d bytes, want 65536 of 2097164", len(m.Payload), m.PayloadSize)
+	}
+	if record := Build(model.SourcePVMBG, mapper.EndpointVolcanicReports, body, cause, now); m.MessageID != record.MessageID {
+		t.Errorf("the label changed the message_id")
 	}
 }
 

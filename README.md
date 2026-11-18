@@ -118,6 +118,7 @@ File `.env` **tidak** di-*commit*. Semua nilai contoh ada di `.env.example`. Unt
 | BMKG | `BMKG_API_KEY`, `BMKG_DELAY_*`, `BMKG_TSUNAMI_RATE` | Kunci dipakai bersama oleh `bmkg-mock` dan aggregator. |
 | PVMBG | `PVMBG_TOKEN_SECRET`, `PVMBG_TOKEN`, `PVMBG_ADMIN_KEY`, `PVMBG_DELAY_*`, `PVMBG_SCHEMA_VERSION` | Lihat catatan token di bawah. |
 | Poller | `POLL_INTERVAL`, `BMKG_TIMEOUT`, `PVMBG_TIMEOUT`, `POLL_CURSOR_OVERLAP`, `BREAKER_FAILURES`, `BREAKER_OPEN_FOR`, `TSUNAMI_GRACE` | Interval, batas waktu, dan *circuit breaker* per sumber. |
+| Adaptasi PVMBG | `PVMBG_ADAPTATIONS` | Aturan adaptasi yang dideklarasikan untuk versi skema PVMBG yang *breaking*, dipisah koma (`rename:<lama>=<baru>`, `numeric_string:<field>`, `optional:<field>`). Kosong berarti tidak ada. Aturan yang tidak valid membuat aggregator gagal start. |
 | Auth | `JWT_ISSUER`, `JWT_AUDIENCE`, `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`, `MEDIA_SECRET`, `LAPANGAN_SECRET`, `BNPB_SECRET`, `REDIS_PASSWORD` | *Secret* untuk tiga klien: `media`, `field-team`, `bnpb-ops`. |
 | Rate limit | `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_SECONDS` | Default 10 *request* per 60 detik per klien. |
 | Batas beban | `MAX_CONCURRENT_REQUESTS` | Batas *request* bersamaan di `client-api` (default 200). Kelebihannya dijawab `429` dengan `Retry-After`. |
@@ -458,9 +459,17 @@ Audit API memakai header `Authorization: Bearer <AUDIT_TOKEN>`. Token disimpan d
 bash scripts/p1/audit.sh checksum BMKG
 ```
 
+*Replay* pesan PVMBG yang `parked` (setelah aturan `PVMBG_ADAPTATIONS` dideklarasikan) memakai header `Authorization: Bearer <OPS_TOKEN>`. Token audit tidak bisa memanggilnya.
+
+| Endpoint | Isi |
+|---|---|
+| `POST /internal/unprocessed/replay?source=PVMBG` | `202 {job_id, status}`. Jika masih ada job aktif untuk source itu, job yang sama dikembalikan |
+| `GET /internal/unprocessed/replay/{job_id}` | Status job dan hitungan `selected`, `recovered`, `still_parked`, `handed_to_retry`, `not_replayable` |
+
 | Variabel | Bawaan | Fungsi |
 |---|---|---|
 | `AUDIT_TOKEN` | kosong | Token Audit API, tanpa nilai ini seluruh permintaan audit ditolak |
+| `OPS_TOKEN` | kosong | Token API *replay*, tanpa nilai ini seluruh permintaan *replay* ditolak |
 | `READ_FAST_TIMEOUT` | `1500ms` | Batas query cepat daftar hazard sebelum beralih ke pembacaan per shard |
 | `READ_SHARD_TIMEOUT` | `2s` | Batas waktu tiap shard sebelum dianggap tidak terjangkau |
 | `DB_POOL_MAX_CONNS` | `24` | Jumlah koneksi database per pod aggregator, cukup untuk 16 query shard paralel |
