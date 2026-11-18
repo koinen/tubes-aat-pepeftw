@@ -37,35 +37,41 @@ func consume(ctx context.Context, client *kgo.Client, n *notifier, fwd *poison.F
 		fetches.EachError(func(topic string, partition int32, err error) {
 			log.Error("kafka_fetch_failed", "correlation_id", "", "topic", topic, "partition", partition, "error", err.Error())
 		})
-		for _, r := range fetches.Records() {
-			_, done := telemetry.Consume(ctx, r)
-			err := handleRecord(ctx, r, n, fwd)
-			done(err)
-			if err != nil {
-				// ctx ended before the value reached topic unprocessed: commit nothing, read it again.
-				client.AllowRebalance()
-				return
-			}
-		}
-
-		commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), commitTimeout)
-		if err := client.CommitUncommittedOffsets(commitCtx); err != nil {
-			log.Error("kafka_commit_failed", "correlation_id", "", "error", err.Error())
-		}
-		cancel()
+		err := processBatch(ctx, fetches.Records(), n, fwd, log, client.CommitUncommittedOffsets)
 		client.AllowRebalance()
+		if err != nil {
+			return
+		}
 	}
 }
 
+func processBatch(ctx context.Context, records []*kgo.Record, n *notifier, fwd *poison.Forwarder, log *slog.Logger, commit func(context.Context) error) error {
+	for _, r := range records {
+		_, done := telemetry.Consume(ctx, r)
+		err := handleRecord(ctx, r, n, fwd)
+		done(err)
+		if err != nil {
+			// A delivery or forward did not complete. Leave the batch uncommitted.
+			return err
+		}
+	}
+
+	commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), commitTimeout)
+	defer cancel()
+	if err := commit(commitCtx); err != nil {
+		log.Error("kafka_commit_failed", "correlation_id", "", "error", err.Error())
+	}
+	return nil
+}
+
 // handleRecord notifies about r, or forwards a value it cannot read to topic unprocessed. It
-// returns an error only when ctx ends before the forward succeeds.
+// returns an error if delivery or forwarding did not complete.
 func handleRecord(ctx context.Context, r *kgo.Record, n *notifier, fwd *poison.Forwarder) error {
 	msg, err := decode(r.Value)
 	if err != nil {
 		return fwd.Forward(ctx, r, err)
 	}
-	n.handle(msg, header(r, "correlation_id"))
-	return nil
+	return n.handle(ctx, msg, header(r, "correlation_id"))
 }
 
 func header(r *kgo.Record, key string) string {

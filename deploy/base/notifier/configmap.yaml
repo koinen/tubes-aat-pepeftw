@@ -9,3 +9,4 @@ data:
   PORT: "8080"
   KAFKA_GROUP_ID: "notifier"
   DEDUP_DIR: "/data"
+  FIELD_TEAM_WEBHOOK_URL: "http://field-team-receiver:8080/alerts"

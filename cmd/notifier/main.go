@@ -63,7 +63,7 @@ func run(log *slog.Logger) error {
 
 	log.Info("notifier_started", "topic", cfg.topic, "group", cfg.groupID, "port", cfg.port)
 	fwd := poison.NewForwarder(client, cfg.unprocessedTopic, cfg.groupID, log)
-	consume(ctx, client, newNotifier(seen, log), fwd, log)
+	consume(ctx, client, newNotifier(seen, log, cfg.webhookURL), fwd, log)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
