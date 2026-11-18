@@ -32,9 +32,9 @@ func writeAuditError(c fiber.Ctx, status int, code, message string) error {
 }
 
 // isAuditPath reports whether the request gets the audit error body (Lampiran A shape): the
-// audit API and the replay API.
+// audit API and the ops API.
 func isAuditPath(c fiber.Ctx) bool {
-	return strings.HasPrefix(c.Path(), auditPrefix) || strings.HasPrefix(c.Path(), replayPrefix)
+	return strings.HasPrefix(c.Path(), auditPrefix) || strings.HasPrefix(c.Path(), opsPrefix)
 }
 
 func auditTime(t time.Time) string {

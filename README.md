@@ -40,7 +40,7 @@ klien (media, field-team, bnpb-ops) ── token dari auth (JWT EdDSA, Redis ref
 | `pvmbg-mock` | Simulasi API PVMBG (laporan gunung api), autentikasi Bearer token, bisa diubah versi skemanya dan dibuat *outage*. |
 | `aggregator` | *Poller* per sumber (*timeout* dan *circuit breaker* terpisah), *mapper* ke `HazardEvent`, simpan ke PostgreSQL, kirim ke Kafka lewat *transactional outbox*. |
 | `auth` | Menerbitkan *access token* JWT (EdDSA, TTL 60 detik) dan *refresh token* berotasi; JWKS di `/.well-known/jwks.json`. |
-| `client-api` | API untuk klien eksternal: `/hazards`, `/hazards/:id`, `/sources/status`, dengan *scope* dan *rate limit*. |
+| `client-api` | API untuk klien eksternal: `/hazards`, `/hazards/:id`, `/sources/status`, `/unprocessed`, dengan *scope* dan *rate limit*. |
 | `dashboard-updater` | Konsumen Kafka yang menampilkan bencana terbaru secara *real time* (SSE). |
 | `notifier` | Konsumen Kafka yang bereaksi pada status `SIAGA` dan `AWAS`. |
 | `audit-log` | Konsumen Kafka untuk pencatatan (profile `extra`, opsional). |
@@ -138,7 +138,7 @@ Salin hasilnya ke `PVMBG_TOKEN` di `.env`, lalu jalankan ulang `docker compose u
 
 | Service | Port host | Endpoint utama |
 |---|---|---|
-| `client-api` | 8080 | `GET /hazards`, `GET /hazards/:id`, `GET /sources/status`, `GET /health` |
+| `client-api` | 8080 | `GET /hazards`, `GET /hazards/:id`, `GET /sources/status`, `GET /unprocessed`, `POST /unprocessed/replay`, `GET /unprocessed/replay/:job_id`, `GET /health` |
 | `bmkg-mock` | 8081 | `GET /seismic-events`, `GET /tsunami-warnings`, `GET /health` |
 | `pvmbg-mock` | 8082 | `GET /volcanic-reports`, `POST /admin/outage`, `/admin/schema-version`, `GET /health` |
 | `dashboard-updater` | 8083 | `GET /` (halaman dashboard), `GET /events` (SSE), `GET /api/hazards`, `GET /health` |
@@ -171,7 +171,9 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/sources/status"
 |---|---|---|---|
 | Media | `media` | `hazard:read:summary` | Ringkasan saja; meminta field mentah menghasilkan `403 FORBIDDEN_FIELD`. |
 | Tim lapangan | `field-team` | `hazard:read:raw` | Data lengkap. |
-| BNPB | `bnpb-ops` | `hazard:read:raw` | Data lengkap. |
+| BNPB | `bnpb-ops` | `hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed` | Data lengkap, ditambah pesan gagal dan *replay*-nya (hanya klien ini). |
+
+Klaim `scope` berisi daftar *scope* dipisah spasi. Klien tanpa *scope* yang dibutuhkan sebuah route mendapat `403 FORBIDDEN`.
 
 *Access token* berlaku 60 detik. Perbarui dengan `grant_type: refresh_token`. *Refresh token* lama otomatis tidak berlaku lagi setelah dipakai.
 
@@ -459,17 +461,23 @@ Audit API memakai header `Authorization: Bearer <AUDIT_TOKEN>`. Token disimpan d
 bash scripts/p1/audit.sh checksum BMKG
 ```
 
-*Replay* pesan PVMBG yang `parked` (setelah aturan `PVMBG_ADAPTATIONS` dideklarasikan) memakai header `Authorization: Bearer <OPS_TOKEN>`. Token audit tidak bisa memanggilnya.
+Pesan gagal hanya bisa diperiksa BNPB Internal Ops. Klien `bnpb-ops` memanggil client-api; client-api meneruskannya ke API ops aggregator dengan `Authorization: Bearer <OPS_TOKEN>` (token ini hanya dipegang client-api, token audit tidak bisa memanggilnya). Hanya metadata pesan yang dikembalikan, tidak pernah *payload*. Kontraknya ada di `api/client-api.yaml` dan `api/ops.yaml`.
 
-| Endpoint | Isi |
-|---|---|
-| `POST /internal/unprocessed/replay?source=PVMBG` | `202 {job_id, status}`. Jika masih ada job aktif untuk source itu, job yang sama dikembalikan |
-| `GET /internal/unprocessed/replay/{job_id}` | Status job dan hitungan `selected`, `recovered`, `still_parked`, `handed_to_retry`, `not_replayable` |
+| client-api | Scope | Aggregator | Isi |
+|---|---|---|---|
+| `GET /unprocessed?source&since&limit&cursor` | `hazard:read:unprocessed` | `GET /internal/unprocessed` | Pesan berstatus `retrying` atau `parked` beserta `reason` |
+| `POST /unprocessed/replay?source=PVMBG` | `hazard:replay:unprocessed` | `POST /internal/unprocessed/replay` | *Replay* pesan PVMBG yang `parked` (setelah aturan `PVMBG_ADAPTATIONS` dideklarasikan). `202 {job_id, status}`; jika masih ada job aktif untuk source itu, job yang sama dikembalikan. `requested_by` berisi subject JWT |
+| `GET /unprocessed/replay/{job_id}` | `hazard:replay:unprocessed` | `GET /internal/unprocessed/replay/{job_id}` | Status job dan hitungan `selected`, `recovered`, `still_parked`, `handed_to_retry`, `not_replayable` |
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "localhost:8080/unprocessed?source=PVMBG&limit=5"
+curl -s -X POST -H "Authorization: Bearer $TOKEN" "localhost:8080/unprocessed/replay?source=PVMBG"
+```
 
 | Variabel | Bawaan | Fungsi |
 |---|---|---|
 | `AUDIT_TOKEN` | kosong | Token Audit API, tanpa nilai ini seluruh permintaan audit ditolak |
-| `OPS_TOKEN` | kosong | Token API *replay*, tanpa nilai ini seluruh permintaan *replay* ditolak |
+| `OPS_TOKEN` | kosong | Token API ops (aggregator dan client-api). Tanpa nilai ini aggregator menolak seluruh permintaan ops dan route `/unprocessed` di client-api membalas `503` |
 | `READ_FAST_TIMEOUT` | `1500ms` | Batas query cepat daftar hazard sebelum beralih ke pembacaan per shard |
 | `READ_SHARD_TIMEOUT` | `2s` | Batas waktu tiap shard sebelum dianggap tidak terjangkau |
 | `DB_POOL_MAX_CONNS` | `24` | Jumlah koneksi database per pod aggregator, cukup untuk 16 query shard paralel |

@@ -57,7 +57,8 @@ func NewTokenHandler(
 	clients := map[string]Client{
 		"media":      {Scope: "hazard:read:summary", Secret: cfg.MediaSecret},
 		"field-team": {Scope: "hazard:read:raw", Secret: cfg.FieldTeamSecret},
-		"bnpb-ops":   {Scope: "hazard:read:raw", Secret: cfg.BnpbOpsSecret},
+		// The scope claim is space-separated. Only bnpb-ops may read and replay failed messages.
+		"bnpb-ops": {Scope: "hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed", Secret: cfg.BnpbOpsSecret},
 	}
 	return &tokenHandler{
 		clients:     clients,

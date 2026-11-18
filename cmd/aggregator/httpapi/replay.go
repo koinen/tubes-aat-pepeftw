@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -12,9 +13,14 @@ import (
 )
 
 const (
-	replayPrefix = "/internal/unprocessed/replay"
-	// requestedByOpsToken is who asked for a replay until C6 forwards the JWT subject.
+	// opsPrefix is the ops API behind OPS_TOKEN: the unprocessed list and replay.
+	opsPrefix = "/internal/unprocessed"
+	// requestedByOpsToken is who asked for a replay when the caller does not say (a port-forward call).
 	requestedByOpsToken = "ops-token"
+	// headerRequestedBy carries the JWT subject from client-api. It is trusted because the route
+	// requires OPS_TOKEN, which only client-api holds.
+	headerRequestedBy = "X-Requested-By"
+	maxRequestedBy    = 128 // characters
 )
 
 type replayAccepted struct {
@@ -52,11 +58,22 @@ func (h handlers) requestReplay(c fiber.Ctx) error {
 	if !ok {
 		return writeAuditError(c, fiber.StatusBadRequest, auditBadRequest, "source tidak mendukung replay")
 	}
-	job, err := h.replay.RequestReplay(c.Context(), *source, requestedByOpsToken, rules)
+	job, err := h.replay.RequestReplay(c.Context(), *source, requestedBy(c), rules)
 	if err != nil {
 		return replayStoreError(c, err)
 	}
 	return c.Status(fiber.StatusAccepted).JSON(replayAccepted{JobID: job.JobID, Status: job.Status})
+}
+
+func requestedBy(c fiber.Ctx) string {
+	v := []rune(strings.TrimSpace(c.Get(headerRequestedBy)))
+	if len(v) > maxRequestedBy {
+		v = v[:maxRequestedBy]
+	}
+	if len(v) > 0 {
+		return string(v)
+	}
+	return requestedByOpsToken
 }
 
 func (h handlers) getReplayJob(c fiber.Ctx) error {

@@ -35,6 +35,9 @@ type KafkaConfig struct {
 type AggregatorConfig struct {
 	BaseURL     string
 	InternalKey string
+	// OpsToken calls the aggregator's ops API (unprocessed list and replay). Optional: empty turns
+	// the /unprocessed routes off.
+	OpsToken string
 }
 
 type AuthConfig struct {
@@ -83,6 +86,7 @@ func LoadConfig() (*Config, error) {
 	aggCfg := AggregatorConfig{
 		BaseURL:     aggBaseURL,
 		InternalKey: aggInternalKey,
+		OpsToken:    shared.GetEnv("OPS_TOKEN", ""),
 	}
 
 	jwksURL := shared.GetEnv("AUTH_JWKS_URL", "")

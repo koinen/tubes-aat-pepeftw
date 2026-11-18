@@ -48,6 +48,12 @@ spec:
                 secretKeyRef:
                   name: bnpb-secrets
                   key: INTERNAL_API_KEY
+            - name: OPS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: OPS_TOKEN
+                  optional: true
             - name: POD_NAME
               valueFrom:
                 fieldRef:
