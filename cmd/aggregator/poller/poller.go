@@ -43,22 +43,24 @@ func New(cfg Config, d Deps) *Poller {
 		{
 			source: model.SourceBMKG, interval: cfg.PollInterval,
 			breaker:  NewBreaker(cfg.BreakerFailures, cfg.BreakerOpenFor),
-			statuses: d.Statuses, cycle: newBMKGPoller(bmkgFetch, d, cfg).cycle, log: d.Log, now: d.Now,
+			statuses: d.Statuses, cycle: sourceCycle(newBMKGPoller(bmkgFetch, d, cfg).cycle), log: d.Log, now: d.Now,
 		},
 		{
 			source: model.SourcePVMBG, interval: cfg.PollInterval,
 			breaker:  NewBreaker(cfg.BreakerFailures, cfg.BreakerOpenFor),
-			statuses: d.Statuses, cycle: newPVMBGPoller(pvmbgFetch, d, cfg).cycle, log: d.Log, now: d.Now,
+			statuses: d.Statuses, cycle: sourceCycle(newPVMBGPoller(pvmbgFetch, d, cfg).cycle), log: d.Log, now: d.Now,
 		},
 	}
 	if cfg.SensorPantaiURL != "" {
 		sensorFetch := newFetcher(model.SourceSensorPantai, cfg.SensorPantaiURL, cfg.SensorPantaiTimeout,
 			func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+cfg.SensorPantaiToken) }, d.Log, d.Now)
+		sensor := newSensorPantaiPoller(sensorFetch, d)
+		breaker := NewBreaker(5, 5*time.Second)
+		breaker.maxOpen = time.Minute
 		runners = append(runners, &runner{
 			source: model.SourceSensorPantai, interval: cfg.SensorPantaiPollInterval,
-			// C10 replaces this breaker with the sensor's own values.
-			breaker:  NewBreaker(cfg.BreakerFailures, cfg.BreakerOpenFor),
-			statuses: d.Statuses, cycle: newSensorPantaiPoller(sensorFetch, d).cycle, log: d.Log, now: d.Now,
+			breaker: breaker, statuses: d.Statuses, cycle: sensor.cycle, sensor: sensor,
+			log: d.Log, now: d.Now,
 		})
 	}
 	return &Poller{runners: runners}

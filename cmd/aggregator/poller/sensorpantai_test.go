@@ -3,6 +3,7 @@ package poller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -26,15 +27,18 @@ var sensorStart = time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
 // fakeSensor plays Sensor Pantai's observations API. Its cursor is "at:<offset>"; a cursor past the
 // end of the stream gets 400, like the real sensor's "cursor tidak valid".
 type fakeSensor struct {
-	mu           sync.Mutex
-	items        []string
-	generatedAt  time.Time
-	stations     []string
-	stationsDown bool
+	mu               sync.Mutex
+	items            []string
+	generatedAt      time.Time
+	stations         []string
+	stationsDown     bool
+	observationsDown bool
 	// omitGeneratedAt leaves generated_at out of observation responses.
 	omitGeneratedAt bool
 	requests        []string // query strings of observation requests, in order
 	stationCalls    int
+	healthCalls     int
+	healthDown      bool
 }
 
 func newFakeSensor(t *testing.T) (*fakeSensor, *httptest.Server) {
@@ -54,6 +58,11 @@ func (s *fakeSensor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch r.URL.Path {
+	case "/healthz":
+		s.healthCalls++
+		if s.healthDown {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
 	case "/v1/stations":
 		s.stationCalls++
 		if s.stationsDown {
@@ -67,6 +76,10 @@ func (s *fakeSensor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"items":[`+strings.Join(items, ",")+`]}`)
 	case "/v1/observations":
 		s.requests = append(s.requests, r.URL.RawQuery)
+		if s.observationsDown {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		offset := 0
 		if c := r.URL.Query().Get("cursor"); c != "" {
 			n, err := strconv.Atoi(strings.TrimPrefix(c, "at:"))
@@ -121,6 +134,17 @@ type sensorStore struct {
 	hasPosition bool
 	positions   int // SetStreamPosition calls
 	saveErr     error
+	positionErr error
+	status      model.SourceStatus
+}
+
+func (s *sensorStore) SaveSourceStatus(_ context.Context, status model.SourceStatus) error {
+	s.status = status
+	return nil
+}
+
+func (s *sensorStore) ListSourceStatus(context.Context) ([]model.SourceStatus, error) {
+	return []model.SourceStatus{s.status}, nil
 }
 
 func (s *sensorStore) SaveHazard(_ context.Context, h model.HazardEvent) (repository.SaveOutcome, error) {
@@ -160,6 +184,9 @@ func (s *sensorStore) GetStreamPosition(context.Context, model.Source, string) (
 }
 
 func (s *sensorStore) SetStreamPosition(_ context.Context, _ model.Source, _ string, p repository.StreamPosition) error {
+	if s.positionErr != nil {
+		return s.positionErr
+	}
 	s.position, s.hasPosition = p, true
 	s.positions++
 	return nil
@@ -199,7 +226,8 @@ func newSensorHarness(t *testing.T) *sensorHarness {
 
 func (h *sensorHarness) cycle() error {
 	h.t.Helper()
-	return h.poller.cycle(correlation.With(context.Background(), "cid-sensor"))
+	result := h.poller.cycle(correlation.With(context.Background(), "cid-sensor"))
+	return errors.Join(result.sourceErr, result.localErr)
 }
 
 func (h *sensorHarness) mustCycle() {
@@ -234,6 +262,269 @@ func TestSensorCycleStoresObservationsAndKeepsLastCursorWhenCaughtUp(t *testing.
 	}
 	if last := h.sensor.requests[len(h.sensor.requests)-1]; !strings.Contains(last, "cursor=at%3A2") {
 		t.Errorf("second cycle asked %q, want it to resume from at:2", last)
+	}
+}
+
+func sensorRunner(t *testing.T) (*fakeSensor, *sensorStore, func(time.Duration)) {
+	t.Helper()
+	sensor, srv := newFakeSensor(t)
+	store := &sensorStore{}
+	clock := sensorStart
+	p := New(Config{SensorPantaiURL: srv.URL, SensorPantaiTimeout: time.Second,
+		BreakerFailures: 3, BreakerOpenFor: 15 * time.Second}, Deps{
+		Hazards: store, Existing: store, Unprocessed: store, Positions: store, Statuses: store,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return clock },
+	})
+	for _, r := range p.runners {
+		if r.source == model.SourceSensorPantai {
+			return sensor, store, func(elapsed time.Duration) {
+				clock = clock.Add(elapsed)
+				r.tick(context.Background())
+			}
+		}
+	}
+	t.Fatal("no Sensor Pantai runner")
+	return nil, nil, nil
+}
+
+func TestSensorBreakerLimitsRequestsAndRecovers(t *testing.T) {
+	sensor, store, tick := sensorRunner(t)
+	sensor.add(observation(0, ""))
+	tick(0)
+	firstSuccess := *store.status.LastSuccessAt
+	sensor.observationsDown = true
+	count := len(sensor.requests)
+	for i := 1; i <= 5; i++ {
+		tick(time.Second)
+		if len(sensor.requests) != count+i {
+			t.Fatalf("failure %d: got %d requests since outage, want %d", i, len(sensor.requests)-count, i)
+		}
+	}
+	if store.status.BreakerState != model.BreakerOpen || store.status.Status != model.StatusStale {
+		t.Fatalf("outage status: %+v", store.status)
+	}
+	count += 5
+	for _, wait := range []time.Duration{5, 10, 20, 40, 60, 60} {
+		tick((wait - 1) * time.Second)
+		if len(sensor.requests) != count {
+			t.Fatalf("request sent before %ds cooldown elapsed", wait)
+		}
+		tick(time.Second)
+		count++
+		if len(sensor.requests) != count || sensor.requests[count-1] != "limit=1" {
+			t.Fatalf("expected one cursor-free probe after %ds, got %v", wait, sensor.requests)
+		}
+	}
+
+	sensor.observationsDown = false
+	sensor.generatedAt = sensor.generatedAt.Add(time.Minute)
+	sensor.add(observation(1, ""))
+	tick(time.Minute)
+	if len(sensor.requests) != count+1 || sensor.requests[count] != "limit=1" ||
+		store.status.BreakerState != model.BreakerClosed || store.status.Status != model.StatusStale ||
+		!store.status.LastSuccessAt.Equal(firstSuccess) || len(store.saved) != 1 {
+		t.Fatalf("probe should close breaker without ingesting: requests %v, status %+v, saved %v",
+			sensor.requests, store.status, store.refs())
+	}
+	tick(time.Second)
+	if store.status.Status != model.StatusOK || len(store.saved) != 2 {
+		t.Fatalf("normal polling did not resume: status %+v, saved %v", store.status, store.refs())
+	}
+}
+
+func TestSensorStationSilenceDoesNotTripBreaker(t *testing.T) {
+	sensor, store, tick := sensorRunner(t)
+	sensor.stations = append(sensor.stations, "stn-cilacap-01")
+	sensor.generatedAt = sensorStart.Add(30 * time.Second)
+	sensor.add(observation(0, ""), observation(1, `{"wave_height_m":-1}`),
+		observation(0, `{"observation_id":"cilacap-0","station_id":"stn-cilacap-01"}`))
+	readSilence := func() map[string]any {
+		t.Helper()
+		raw, err := json.Marshal(store.status)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var snapshot struct {
+			StationSilence map[string]any `json:"station_silence"`
+		}
+		if err := json.Unmarshal(raw, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		return snapshot.StationSilence
+	}
+	tick(0)
+	silence := readSilence()
+	if unknown, ok := silence["stn-cilacap-01"]; !ok || unknown != nil || silence["stn-padang-01"] != false {
+		t.Fatalf("first status should distinguish unknown and not silent: %v", silence)
+	}
+	sensor.generatedAt = sensorStart.Add(166 * time.Second)
+	sensor.add(observation(1, ""), observation(0, ""),
+		observation(10, `{"observation_id":"cilacap-1","station_id":"stn-cilacap-01"}`))
+	tick(time.Second)
+	silence = readSilence()
+	if silence["stn-padang-01"] != true || silence["stn-cilacap-01"] != false ||
+		store.status.BreakerState != model.BreakerClosed || store.status.Status != model.StatusOK {
+		t.Fatalf("one silent station should not make the source unhealthy: %v %+v", silence, store.status)
+	}
+	sensor.observationsDown = true
+	for range 5 {
+		tick(time.Second)
+	}
+	if silence := readSilence(); silence["stn-padang-01"] != nil || len(silence) != 2 {
+		t.Fatalf("open breaker should make station silence unknown: %v", silence)
+	}
+}
+
+func TestSensorStalledClockOpensBreakerAndEqualProbeDoesNotCloseIt(t *testing.T) {
+	sensor, store, tick := sensorRunner(t)
+	tick(0)
+	for repeat := 1; repeat <= 7; repeat++ {
+		tick(time.Second)
+		if repeat <= 2 && store.status.Status != model.StatusOK {
+			t.Fatalf("repeat %d should be tolerated: %+v", repeat, store.status)
+		}
+		if repeat >= 3 && store.status.Status != model.StatusStale {
+			t.Fatalf("repeat %d should mark source stale: %+v", repeat, store.status)
+		}
+		if repeat < 7 && store.status.BreakerState != model.BreakerClosed {
+			t.Fatalf("repeat %d opened breaker early: %+v", repeat, store.status)
+		}
+	}
+	if store.status.BreakerState != model.BreakerOpen {
+		t.Fatalf("seventh repeat should open breaker: %+v", store.status)
+	}
+	tick(5 * time.Second)
+	if store.status.BreakerState != model.BreakerOpen {
+		t.Fatalf("frozen clock should fail recovery probe: %+v", store.status)
+	}
+	sensor.generatedAt = sensorStart
+	tick(10 * time.Second)
+	if store.status.BreakerState != model.BreakerClosed {
+		t.Fatalf("sensor restart should recover the breaker: %+v", store.status)
+	}
+}
+
+func TestSensorStallCountsCompletePollsRatherThanPages(t *testing.T) {
+	sensor, store, tick := sensorRunner(t)
+	tick(0)
+	for i := range 2 {
+		sensor.add(observation(i, ""))
+		tick(time.Second) // one observation page and one empty page at the same sensor time
+		if store.status.Status != model.StatusOK {
+			t.Fatalf("repeat %d counted individual pages as clock samples: %+v", i+1, store.status)
+		}
+	}
+	sensor.observationsDown = true
+	tick(time.Second)
+	sensor.observationsDown = false
+	tick(time.Second)
+	if !strings.Contains(store.status.LastError, "generated_at did not advance") {
+		t.Fatalf("failed fetch unexpectedly cleared the stall streak: %+v", store.status)
+	}
+}
+
+func TestSensorLocalCursorWriteFailureDoesNotOpenBreaker(t *testing.T) {
+	sensor, store, tick := sensorRunner(t)
+	tick(0)
+	store.positionErr = fmt.Errorf("database write failed")
+	for range 6 {
+		sensor.generatedAt = sensor.generatedAt.Add(time.Minute)
+		tick(time.Second)
+	}
+	if store.status.Status != model.StatusStale || store.status.BreakerState != model.BreakerClosed {
+		t.Fatalf("local write failure should only make ingestion stale: %+v", store.status)
+	}
+}
+
+func TestSensorReadinessIsAdvisoryAndStopsWhileBreakerIsOpen(t *testing.T) {
+	sensor, store, tick := sensorRunner(t)
+	sensor.healthDown = true
+	tick(0)
+	if sensor.healthCalls != 1 || store.status.Status != model.StatusOK {
+		t.Fatalf("healthz should not make ingestion unhealthy: calls=%d status=%+v", sensor.healthCalls, store.status)
+	}
+	sensor.healthDown = false
+	sensor.observationsDown = true
+	for range 5 {
+		tick(time.Second)
+	}
+	tick(29 * time.Second)
+	if store.status.BreakerState != model.BreakerOpen || sensor.healthCalls != 1 {
+		t.Fatalf("healthz should not run when open or probing: calls=%d status=%+v", sensor.healthCalls, store.status)
+	}
+	sensor.observationsDown = false
+	sensor.generatedAt = sensor.generatedAt.Add(time.Minute)
+	tick(10 * time.Second)
+	if sensor.healthCalls != 1 || store.status.BreakerState != model.BreakerClosed {
+		t.Fatalf("recovery should send only its probe: calls=%d status=%+v", sensor.healthCalls, store.status)
+	}
+	tick(time.Second)
+	if sensor.healthCalls != 2 || store.status.Status != model.StatusOK {
+		t.Fatalf("normal polling should resume readiness sampling: calls=%d status=%+v", sensor.healthCalls, store.status)
+	}
+}
+
+type isolationStore struct{ sensorStore }
+
+func (*isolationStore) GetCursor(context.Context, model.Source, string) (time.Time, bool, error) {
+	return time.Time{}, false, nil
+}
+
+func (*isolationStore) SetCursor(context.Context, model.Source, string, time.Time) error {
+	return nil
+}
+
+func (*isolationStore) ListSourceStatus(context.Context) ([]model.SourceStatus, error) {
+	return nil, nil
+}
+
+func (*isolationStore) SaveSourceStatus(context.Context, model.SourceStatus) error { return nil }
+
+func (*isolationStore) ListVolcanoRefs(context.Context) ([]model.VolcanoRef, error) { return nil, nil }
+
+func TestSensorBlockedRequestDoesNotBlockBMKG(t *testing.T) {
+	blocked := make(chan struct{})
+	sensor := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(blocked)
+		<-r.Context().Done()
+	}))
+	defer sensor.Close()
+	progress := make(chan struct{}, 1)
+	bmkg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-blocked:
+		case <-r.Context().Done():
+			return
+		}
+		io.WriteString(w, `[]`)
+		if r.URL.Path == "/seismic-events" {
+			progress <- struct{}{}
+		}
+	}))
+	defer bmkg.Close()
+	pvmbg := httptest.NewServer(http.NotFoundHandler())
+	defer pvmbg.Close()
+	store := &isolationStore{}
+	p := New(Config{BMKGURL: bmkg.URL, PVMBGURL: pvmbg.URL, SensorPantaiURL: sensor.URL,
+		BMKGTimeout: 5 * time.Second, PVMBGTimeout: time.Second, SensorPantaiTimeout: 5 * time.Second,
+		PollInterval: time.Hour, SensorPantaiPollInterval: time.Hour, BreakerFailures: 3}, Deps{
+		Hazards: store, Existing: store, Unprocessed: store, Positions: store, Statuses: store, Cursors: store, Volcanoes: store,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.Run(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	select {
+	case <-progress:
+	case <-time.After(2 * time.Second):
+		t.Fatal("BMKG did not reach its seismic endpoint while Sensor Pantai was blocked")
 	}
 }
 
@@ -358,7 +649,10 @@ func TestSensorRepeatedObservationIdWithNewValuesIsParked(t *testing.T) {
 	}
 }
 
-func (h *sensorHarness) advance(d time.Duration) { h.clock = h.clock.Add(d) }
+func (h *sensorHarness) advance(d time.Duration) {
+	h.clock = h.clock.Add(d)
+	h.sensor.generatedAt = h.sensor.generatedAt.Add(d)
+}
 
 func TestSensorWithoutStationListFailsAndParksNothing(t *testing.T) {
 	h := newSensorHarness(t)

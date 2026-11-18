@@ -22,12 +22,26 @@ type runner struct {
 	interval time.Duration
 	breaker  *Breaker
 	statuses repository.SourceStatusRepository
-	cycle    func(ctx context.Context) error
+	cycle    func(ctx context.Context) pollResult
+	sensor   *sensorPantaiPoller
 	log      *slog.Logger
 	now      func() time.Time
 
 	lastSuccess *time.Time
 	lastError   string
+}
+
+// pollResult separates evidence about the source from the outcome of local ingestion.
+type pollResult struct {
+	checked   bool
+	sourceErr error
+	localErr  error
+}
+
+func sourceCycle(cycle func(context.Context) error) func(context.Context) pollResult {
+	return func(ctx context.Context) pollResult {
+		return pollResult{checked: true, sourceErr: cycle(ctx)}
+	}
 }
 
 func (r *runner) run(ctx context.Context) {
@@ -72,22 +86,34 @@ func (r *runner) tick(ctx context.Context) {
 		return
 	}
 
-	err := r.cycle(ctx)
+	probing := r.sensor != nil && r.breaker.State() == model.BreakerHalfOpen
+	var result pollResult
+	if probing {
+		result = pollResult{checked: true, sourceErr: r.sensor.probe(ctx)}
+	} else {
+		result = r.cycle(ctx)
+	}
 	if ctx.Err() != nil {
 		return
 	}
-	if err != nil {
+	if result.sourceErr != nil {
 		r.breaker.Failure(r.now())
+	} else if result.checked {
+		r.breaker.Success()
+	}
+	if err := errors.Join(result.sourceErr, result.localErr); err != nil {
 		r.lastError = err.Error()
 		r.log.Warn("poll_failed", "correlation_id", cid, "target", string(r.source),
 			"breaker_state", string(r.breaker.State()), "error", err.Error())
-	} else {
-		r.breaker.Success()
+	} else if !probing && result.checked {
 		t := now.UTC().Truncate(time.Second)
 		r.lastSuccess = &t
 		r.lastError = ""
 	}
 	r.saveStatus(ctx, cid)
+	if r.sensor != nil && !probing && r.breaker.State() == model.BreakerClosed && ctx.Err() == nil {
+		r.sensor.sampleReadiness(ctx)
+	}
 }
 
 func (r *runner) saveStatus(ctx context.Context, cid string) {
@@ -97,8 +123,11 @@ func (r *runner) saveStatus(ctx context.Context, cid string) {
 		LastSuccessAt: r.lastSuccess,
 		LastError:     r.lastError,
 	}
+	if r.sensor != nil {
+		st.StationSilence = r.sensor.stationSilence(st.BreakerState == model.BreakerClosed)
+	}
 	switch {
-	case r.lastError == "" && r.breaker.State() == model.BreakerClosed:
+	case r.lastSuccess != nil && r.lastError == "" && r.breaker.State() == model.BreakerClosed:
 		st.Status = model.StatusOK
 	case r.lastSuccess != nil:
 		st.Status = model.StatusStale

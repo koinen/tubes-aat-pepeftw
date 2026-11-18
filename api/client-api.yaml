@@ -117,7 +117,7 @@ paths:
                 required: [data]
                 properties:
                   data:
-                    $ref: './common.yaml#/components/schemas/SourcesMap'
+                    $ref: './common.yaml#/components/schemas/SourcesStatusMap'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
         '429':

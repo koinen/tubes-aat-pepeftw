@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"tubes-aat-pepeftw/cmd/aggregator/correlation"
@@ -42,15 +43,22 @@ type sensorPantaiPoller struct {
 	pageLimit int
 	maxPages  int
 
-	stations         map[string]mapper.Station
-	stationsLoadedAt time.Time // last successful fetch
-	stationsTriedAt  time.Time // last fetch attempt
+	stations           map[string]mapper.Station
+	stationsLoadedAt   time.Time // last successful fetch
+	stationsTriedAt    time.Time // last fetch attempt
+	generatedAt        time.Time
+	clockSampleCurrent bool
+	equalPolls         int
+	epoch              uint64
+	cadences           map[string]*stationCadence
+	readinessTriedAt   time.Time
 }
 
 func newSensorPantaiPoller(f *fetcher, d Deps) *sensorPantaiPoller {
 	return &sensorPantaiPoller{
 		f: f, hazards: d.Hazards, existing: d.Existing, dlq: d.Unprocessed, positions: d.Positions,
 		log: d.Log, now: d.Now, pageLimit: sensorPageLimit, maxPages: sensorMaxPages,
+		cadences: make(map[string]*stationCadence),
 	}
 }
 
@@ -58,23 +66,71 @@ func newSensorPantaiPoller(f *fetcher, d Deps) *sensorPantaiPoller {
 type sensorPage struct {
 	meta  mapper.CoastalPage
 	items []json.RawMessage
+	epoch uint64
 }
 
-func (p *sensorPantaiPoller) cycle(ctx context.Context) error {
-	if err := p.refreshStations(ctx); err != nil {
-		return err
-	}
-	pos, _, err := p.positions.GetStreamPosition(ctx, model.SourceSensorPantai, EndpointObservations)
+type sensorResponse struct {
+	GeneratedAt time.Time         `json:"generated_at"`
+	Items       []json.RawMessage `json:"items"`
+	NextCursor  *string           `json:"next_cursor"`
+}
+
+func (p *sensorPantaiPoller) probe(ctx context.Context) error {
+	p.clockSampleCurrent = false // a probe does not read the station stream
+	body, err := p.f.get(ctx, "/v1/observations", url.Values{"limit": {"1"}})
 	if err != nil {
 		return err
+	}
+	var resp sensorResponse
+	if err := unprocessed.Check(body); err != nil {
+		return fmt.Errorf("sensor probe: %w", err)
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("sensor probe: %w", err)
+	}
+	switch {
+	case resp.GeneratedAt.IsZero() || resp.Items == nil:
+		return errors.New("sensor probe: response missing generated_at or items")
+	case resp.GeneratedAt.Equal(p.generatedAt):
+		return errors.New("sensor probe: generated_at did not advance")
+	case !p.generatedAt.IsZero() && resp.GeneratedAt.Before(p.generatedAt):
+		p.restarted(ctx, "generated_at_backwards", p.generatedAt, resp.GeneratedAt)
+	}
+	p.generatedAt = resp.GeneratedAt.UTC()
+	p.equalPolls = 0
+	return nil
+}
+
+func (p *sensorPantaiPoller) cycle(ctx context.Context) (result pollResult) {
+	p.clockSampleCurrent = false
+	pos, _, err := p.positions.GetStreamPosition(ctx, model.SourceSensorPantai, EndpointObservations)
+	if err != nil {
+		return pollResult{localErr: err}
+	}
+	if err := p.refreshStations(ctx); err != nil {
+		return pollResult{sourceErr: err}
 	}
 	rec := newRecorder(p.dlq, p.log, model.SourceSensorPantai, p.now().UTC())
 
 	pages, next, err := p.fetch(ctx, rec, pos)
 	if err != nil {
-		return err
+		return pollResult{sourceErr: err, localErr: rec.err}
+	}
+	if len(pages) > 0 && !next.GeneratedAt.IsZero() {
+		p.clockSampleCurrent = true
+		result.checked = true
+		if next.GeneratedAt.Equal(p.generatedAt) {
+			p.equalPolls++
+			if p.equalPolls >= 3 {
+				result.sourceErr = errors.New("sensor generated_at did not advance")
+			}
+		} else {
+			p.equalPolls = 0
+		}
+		p.generatedAt = next.GeneratedAt
 	}
 	trusted := p.checkUnknownStations(ctx, pages)
+	p.trackStations(pages)
 	lookup := func(id string) (mapper.Station, bool) { s, ok := p.stations[id]; return s, ok }
 	var criticals, rest []mapped
 	held := 0
@@ -97,16 +153,20 @@ func (p *sensorPantaiPoller) cycle(ctx context.Context) error {
 	// Criticals go first so their outbox rows exist before a large backlog's.
 	for _, m := range append(criticals, rest...) {
 		if err := p.write(ctx, rec, m); err != nil {
-			return err
+			result.localErr = err
+			return result
 		}
 	}
 	if rec.err != nil {
-		return rec.err
+		result.localErr = rec.err
+		return result
 	}
 	if held > 0 {
-		return fmt.Errorf("%d observations held: unknown station_id and the station list could not be refreshed", held)
+		result.sourceErr = fmt.Errorf("%d observations held: unknown station_id and the station list could not be refreshed", held)
+		return result
 	}
-	return p.positions.SetStreamPosition(ctx, model.SourceSensorPantai, EndpointObservations, next)
+	result.localErr = p.positions.SetStreamPosition(ctx, model.SourceSensorPantai, EndpointObservations, next)
+	return result
 }
 
 type mapped struct {
@@ -158,35 +218,46 @@ func (p *sensorPantaiPoller) fetch(ctx context.Context, rec *recorder, pos repos
 		body, err := p.f.get(ctx, "/v1/observations", q)
 		fetchedAt := p.now().UTC()
 		var status *StatusError
-		if errors.As(err, &status) && status.Code == http.StatusBadRequest && pos.Cursor != "" {
+		if errors.As(err, &status) && status.Code == http.StatusBadRequest && pos.Cursor != "" && invalidSensorCursor(body) {
 			p.restarted(ctx, "cursor_rejected", pos.GeneratedAt, time.Time{})
 			pos = repository.StreamPosition{}
 			continue
 		}
-		var resp struct {
-			GeneratedAt time.Time         `json:"generated_at"`
-			Items       []json.RawMessage `json:"items"`
-			NextCursor  *string           `json:"next_cursor"`
-		}
+		var resp sensorResponse
 		if err := rec.decode(ctx, EndpointObservations, body, err, &resp); err != nil {
+			if rec.err != nil {
+				return nil, pos, errors.New("invalid /v1/observations response")
+			}
 			return nil, pos, err
 		}
-		if resp.GeneratedAt.IsZero() {
+		if resp.GeneratedAt.IsZero() || resp.Items == nil {
 			// Without the sensor's clock no observation can be checked against it.
-			cause := &mapper.RejectError{Code: model.ReasonContractViolation, Reason: "respons tanpa generated_at"}
+			missing := "generated_at"
+			if !resp.GeneratedAt.IsZero() {
+				missing = "items"
+			}
+			cause := &mapper.RejectError{Code: model.ReasonContractViolation, Reason: "respons tanpa " + missing}
 			rec.save(ctx, unprocessed.BuildResponse(model.SourceSensorPantai, EndpointObservations, body, cause, rec.now))
 			return nil, pos, fmt.Errorf("GET /v1/observations: %w", cause)
 		}
 		generatedAt := resp.GeneratedAt.UTC()
-		if pos.Cursor != "" && generatedAt.Before(pos.GeneratedAt) {
+		previous := pos.GeneratedAt
+		if p.generatedAt.After(previous) {
+			previous = p.generatedAt
+		}
+		if !previous.IsZero() && generatedAt.Before(previous) {
 			// The old cursor was accepted by a new run; this page is from the middle of it.
-			p.restarted(ctx, "generated_at_backwards", pos.GeneratedAt, generatedAt)
+			p.restarted(ctx, "generated_at_backwards", previous, generatedAt)
+			hadCursor := pos.Cursor != ""
 			pos = repository.StreamPosition{}
-			continue
+			if hadCursor {
+				continue
+			}
 		}
 		pages = append(pages, sensorPage{
 			meta:  mapper.CoastalPage{GeneratedAt: generatedAt, FetchedAt: fetchedAt},
 			items: resp.Items,
+			epoch: p.epoch,
 		})
 		pos.GeneratedAt = generatedAt
 		if resp.NextCursor == nil {
@@ -197,9 +268,22 @@ func (p *sensorPantaiPoller) fetch(ctx context.Context, rec *recorder, pos repos
 	return pages, pos, nil
 }
 
+func invalidSensorCursor(body []byte) bool {
+	var response struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	return json.Unmarshal(body, &response) == nil && strings.EqualFold(strings.TrimSpace(response.Error.Message), "cursor tidak valid")
+}
+
 // restarted logs a sensor restart. The poller then reads the stream from the start; observations it
 // already has are deduplicated by hazard_id. A restart is not a failure.
 func (p *sensorPantaiPoller) restarted(ctx context.Context, signal string, before, after time.Time) {
+	p.generatedAt = time.Time{}
+	p.equalPolls = 0
+	p.epoch++
+	clear(p.cadences)
 	attrs := []any{"correlation_id", correlation.From(ctx), "target", string(model.SourceSensorPantai), "signal", signal,
 		"generated_at_before", before.Format(time.RFC3339)}
 	if !after.IsZero() {
@@ -279,6 +363,11 @@ func (p *sensorPantaiPoller) loadStations(ctx context.Context, now time.Time) er
 		stations[s.StationID] = mapper.Station{Name: s.Name, Province: s.Province, Latitude: s.Latitude, Longitude: s.Longitude}
 	}
 	p.stations = stations
+	for id := range p.cadences {
+		if _, known := stations[id]; !known {
+			delete(p.cadences, id)
+		}
+	}
 	p.stationsLoadedAt = now
 	return nil
 }
