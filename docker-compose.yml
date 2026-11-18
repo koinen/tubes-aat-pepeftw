@@ -139,6 +139,7 @@ services:
     environment:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       AUDIT_TOKEN: ${AUDIT_TOKEN:-}
+      OPS_TOKEN: ${OPS_TOKEN:-}
       DB_HOST: aggregator-db
       DB_PORT: "26257"
       DB_USER: ${DB_USER}
@@ -158,6 +159,7 @@ services:
       BREAKER_FAILURES: ${BREAKER_FAILURES:-3}
       BREAKER_OPEN_FOR: ${BREAKER_OPEN_FOR:-15s}
       TSUNAMI_GRACE: ${TSUNAMI_GRACE:-30s}
+      PVMBG_ADAPTATIONS: ${PVMBG_ADAPTATIONS:-}
     ports:
       - "8085:8080"
     depends_on:

@@ -18,6 +18,7 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/kafka"
 	"tubes-aat-pepeftw/cmd/aggregator/leader"
 	"tubes-aat-pepeftw/cmd/aggregator/logging"
+	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/poller"
 	"tubes-aat-pepeftw/cmd/aggregator/relay"
 	"tubes-aat-pepeftw/cmd/aggregator/repository/postgres"
@@ -114,6 +115,15 @@ func run(log *slog.Logger) error {
 		<-relayDone
 	}()
 
+	// Only PVMBG can be replayed (see docs: replayable sources).
+	replayRemappers := map[model.Source]unprocessed.Remapper{
+		model.SourcePVMBG: unprocessed.PVMBGRemapper(repo, pollerCfg.PVMBGAdaptations),
+	}
+	replayRules := make(map[model.Source]string, len(replayRemappers))
+	for source, rm := range replayRemappers {
+		replayRules[source] = rm.Rules
+	}
+
 	if pollerCfg.Enabled || satCfg.Enabled {
 		leaderDone := make(chan struct{})
 		go func() {
@@ -137,6 +147,11 @@ func run(log *slog.Logger) error {
 					go func() {
 						defer wg.Done()
 						unprocessed.NewWorker(repo, log).Run(leadCtx)
+					}()
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						unprocessed.NewReplayer(repo, replayRemappers, log, time.Now).Run(leadCtx)
 					}()
 				}
 				if satCfg.Enabled {
@@ -197,6 +212,9 @@ func run(log *slog.Logger) error {
 		KafkaPing:    producer.Ping,
 		InternalKey:  cfg.InternalAPIKey,
 		AuditToken:   cfg.AuditToken,
+		Replay:       repo,
+		ReplayRules:  replayRules,
+		OpsToken:     cfg.OpsToken,
 		Log:          log,
 	})
 
@@ -211,6 +229,9 @@ func run(log *slog.Logger) error {
 
 	if cfg.AuditToken == "" {
 		log.Warn("audit_token_missing", "effect", "audit api rejects every request")
+	}
+	if cfg.OpsToken == "" {
+		log.Warn("ops_token_missing", "effect", "replay api rejects every request")
 	}
 	log.Info("aggregator_started", "port", cfg.Port)
 	return app.Listen(":"+cfg.Port, fiber.ListenConfig{DisableStartupMessage: true})

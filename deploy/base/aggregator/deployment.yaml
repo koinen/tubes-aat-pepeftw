@@ -72,6 +72,12 @@ spec:
                   name: bnpb-secrets
                   key: AUDIT_TOKEN
                   optional: true
+            - name: OPS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: OPS_TOKEN
+                  optional: true
             - name: POD_NAME
               valueFrom:
                 fieldRef:

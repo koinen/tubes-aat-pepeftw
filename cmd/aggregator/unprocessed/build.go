@@ -25,9 +25,20 @@ const (
 	MaxEndpoint = 64
 )
 
-// Build describes raw, which failed with cause, as an unprocessed message received at now.
-// For an *Oversized cause, raw is ignored: the prefix, size and hash come from the cause.
+// Build describes one record (a report, an event), which failed with cause, as an unprocessed
+// message received at now. A record over MaxIntact that was rejected is labelled too_large.
 func Build(source model.Source, endpoint string, raw []byte, cause error, now time.Time) model.UnprocessedMessage {
+	return build(source, endpoint, raw, cause, now, true)
+}
+
+// BuildResponse describes a whole response that could not be decoded. It keeps the real code at
+// any size; a body over MaxIntact is still stored as a prefix. For an *Oversized cause, body is
+// ignored: the prefix, size and hash come from the cause.
+func BuildResponse(source model.Source, endpoint string, body []byte, cause error, now time.Time) model.UnprocessedMessage {
+	return build(source, endpoint, body, cause, now, false)
+}
+
+func build(source model.Source, endpoint string, raw []byte, cause error, now time.Time, record bool) model.UnprocessedMessage {
 	code, ref, detail := classify(cause)
 	endpoint = storable(endpoint, MaxEndpoint)
 
@@ -47,9 +58,13 @@ func Build(source model.Source, endpoint string, raw []byte, cause error, now ti
 	if code == model.ReasonStoreUnavailable {
 		status = model.StatusRetrying
 	}
-	if over == nil && len(raw) > MaxIntact && status == model.StatusParked {
+	switch {
+	case over != nil || len(raw) <= MaxIntact || status != model.StatusParked:
+	case record:
 		detail = fmt.Sprintf("record %d bytes > %d, disimpan %d byte pertama; %s: %s", len(raw), MaxIntact, PrefixSize, code, detail)
 		code = model.ReasonTooLarge
+	default:
+		detail = fmt.Sprintf("%s; respons %d bytes > %d, disimpan %d byte pertama", detail, len(raw), MaxIntact, PrefixSize)
 	}
 
 	return model.UnprocessedMessage{

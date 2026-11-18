@@ -31,8 +31,10 @@ func writeAuditError(c fiber.Ctx, status int, code, message string) error {
 	return c.Status(status).JSON(auditErrorBody{Error: auditErrorDetail{Code: code, Message: message}})
 }
 
+// isAuditPath reports whether the request gets the audit error body (Lampiran A shape): the
+// audit API and the replay API.
 func isAuditPath(c fiber.Ctx) bool {
-	return strings.HasPrefix(c.Path(), auditPrefix)
+	return strings.HasPrefix(c.Path(), auditPrefix) || strings.HasPrefix(c.Path(), replayPrefix)
 }
 
 func auditTime(t time.Time) string {

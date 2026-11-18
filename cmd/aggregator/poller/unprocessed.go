@@ -66,7 +66,7 @@ func (r *recorder) decode(ctx context.Context, endpoint string, body []byte, fet
 	if cause == nil {
 		return nil
 	}
-	r.save(ctx, unprocessed.Build(r.source, endpoint, body, cause, r.now))
+	r.save(ctx, unprocessed.BuildResponse(r.source, endpoint, body, cause, r.now))
 	if r.err != nil {
 		return r.err
 	}

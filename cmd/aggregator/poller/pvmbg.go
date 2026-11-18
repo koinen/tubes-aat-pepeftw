@@ -11,6 +11,7 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/mapper"
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
+	"tubes-aat-pepeftw/cmd/aggregator/unprocessed"
 )
 
 type pvmbgPoller struct {
@@ -20,6 +21,7 @@ type pvmbgPoller struct {
 	cursors   repository.CursorRepository
 	volcanoes repository.VolcanoRefRepository
 	overlap   time.Duration
+	rules     mapper.VolcanicAdaptations
 	log       *slog.Logger
 	now       func() time.Time
 
@@ -29,7 +31,7 @@ type pvmbgPoller struct {
 func newPVMBGPoller(f *fetcher, d Deps, cfg Config) *pvmbgPoller {
 	return &pvmbgPoller{
 		f: f, hazards: d.Hazards, dlq: d.Unprocessed, cursors: d.Cursors, volcanoes: d.Volcanoes,
-		overlap: cfg.CursorOverlap, log: d.Log, now: d.Now,
+		overlap: cfg.CursorOverlap, rules: cfg.PVMBGAdaptations, log: d.Log, now: d.Now,
 	}
 }
 
@@ -72,6 +74,11 @@ func (p *pvmbgPoller) cycle(ctx context.Context) error {
 		since = &s
 	}
 
+	// The overlap fetches stored reports again, so a report's adaptations are reported only by the
+	// poll that created its hazard.
+	adapted := unprocessed.AdaptationObserver(p.log, model.SourcePVMBG, cid)
+	var needed []string
+	rules := p.rules.WithObserver(func(rule, _ string) { needed = append(needed, rule) })
 	rec := newRecorder(p.dlq, p.log, model.SourcePVMBG, now)
 	body, err := p.f.get(ctx, "/volcanic-reports", since)
 	var resp struct {
@@ -91,7 +98,8 @@ func (p *pvmbgPoller) cycle(ctx context.Context) error {
 			newCursor = t.UTC()
 		}
 
-		h, err := mapper.Volcanic(raw, p.lookup, mapper.VolcanicAdaptations{}, now)
+		needed = needed[:0]
+		h, err := mapper.Volcanic(raw, p.lookup, rules, now)
 		if err != nil {
 			rec.park(ctx, mapper.EndpointVolcanicReports, raw, err)
 			continue
@@ -104,6 +112,9 @@ func (p *pvmbgPoller) cycle(ctx context.Context) error {
 			continue
 		}
 		if outcome == repository.OutcomeCreated {
+			for _, rule := range needed {
+				adapted(rule, h.SourceRefID)
+			}
 			_, hasConfidence := h.Attributes["confidence_level"]
 			p.log.Info("hazard_saved", "correlation_id", cid, "hazard_id", h.HazardID, "source", string(h.Source),
 				"source_ref_id", h.SourceRefID, "severity", string(h.Severity), "confidence_level", hasConfidence)

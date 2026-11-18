@@ -7,7 +7,8 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-func requireAuditToken(token string) fiber.Handler {
+// requireBearerToken accepts only "Authorization: Bearer <token>". An empty token rejects every request.
+func requireBearerToken(token string) fiber.Handler {
 	want := []byte(token)
 	return func(c fiber.Ctx) error {
 		got, ok := strings.CutPrefix(c.Get(fiber.HeaderAuthorization), "Bearer ")

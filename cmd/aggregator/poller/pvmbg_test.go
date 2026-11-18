@@ -1,7 +1,9 @@
 package poller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +16,7 @@ import (
 
 	"tubes-aat-pepeftw/cmd/aggregator/correlation"
 	"tubes-aat-pepeftw/cmd/aggregator/fence"
+	"tubes-aat-pepeftw/cmd/aggregator/mapper"
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
 )
@@ -39,6 +42,11 @@ type fakeStore struct {
 func (f *fakeStore) SaveHazard(_ context.Context, h model.HazardEvent) (repository.SaveOutcome, error) {
 	if f.saveErr != nil {
 		return "", f.saveErr
+	}
+	for _, s := range f.saved {
+		if s.SourceRefID == h.SourceRefID {
+			return repository.OutcomeUnchanged, nil
+		}
 	}
 	f.saved = append(f.saved, h)
 	return repository.OutcomeCreated, nil
@@ -67,18 +75,23 @@ func (f *fakeStore) ListVolcanoRefs(context.Context) ([]model.VolcanoRef, error)
 
 func pvmbgCycle(t *testing.T, body string, store *fakeStore) error {
 	t.Helper()
+	return pvmbgCycleWith(t, body, store, mapper.VolcanicAdaptations{}, io.Discard)
+}
+
+func pvmbgCycleWith(t *testing.T, body string, store *fakeStore, rules mapper.VolcanicAdaptations, logs io.Writer) error {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, body)
 	}))
 	t.Cleanup(srv.Close)
 
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.NewJSONHandler(logs, nil))
 	now := func() time.Time { return pollTime }
 	store.cursor = priorCursor
 	deps := Deps{Hazards: store, Unprocessed: store, Cursors: store, Volcanoes: store, Log: log, Now: now}
 	f := newFetcher(model.SourcePVMBG, srv.URL, time.Second, func(*http.Request) {}, log, now)
 	ctx := correlation.With(context.Background(), "cid-1")
-	return newPVMBGPoller(f, deps, Config{CursorOverlap: time.Minute}).cycle(ctx)
+	return newPVMBGPoller(f, deps, Config{CursorOverlap: time.Minute, PVMBGAdaptations: rules}).cycle(ctx)
 }
 
 func reports(rs ...string) string { return `{"reports":[` + strings.Join(rs, ",") + `]}` }
@@ -101,6 +114,76 @@ func TestBreakingChangeIsParkedAndPollingMovesOn(t *testing.T) {
 	if want := time.Date(2026, 11, 18, 0, 5, 0, 0, time.UTC); !store.cursor.Equal(want) {
 		t.Errorf("cursor %v, want %v", store.cursor, want)
 	}
+}
+
+// Once the rename is declared, the same breaking report is stored live instead of parked,
+// and the log says which rule it needed.
+func TestDeclaredAdaptationStoresTheBreakingReport(t *testing.T) {
+	rules, err := mapper.ParseVolcanicAdaptations("rename:alert_status=alert_level")
+	if err != nil {
+		t.Fatalf("rules: %v", err)
+	}
+	var logs bytes.Buffer
+	store := &fakeStore{}
+	if err := pvmbgCycleWith(t, reports(renamedField), store, rules, &logs); err != nil {
+		t.Fatalf("cycle: %v", err)
+	}
+	if len(store.saved) != 1 || len(store.unprocessed) != 0 {
+		t.Fatalf("saved %d, unprocessed %d, want 1 and 0", len(store.saved), len(store.unprocessed))
+	}
+	if h := store.saved[0]; h.SourceRefID != "r3" || h.Severity != model.SeveritySiaga {
+		t.Errorf("got ref %q severity %q, want r3 SIAGA", h.SourceRefID, h.Severity)
+	}
+	want := map[string]any{"msg": "adaptation_applied", "source": "PVMBG", "source_ref_id": "r3",
+		"rule": "rename:alert_status=alert_level", "correlation_id": "cid-1"}
+	if !hasLogLine(t, logs.String(), want) {
+		t.Errorf("no log line with %v in\n%s", want, logs.String())
+	}
+}
+
+// The cursor overlap fetches the same report again on later polls. Only the poll that stored it
+// counts the adaptation, so the counter says how many reports needed the rule.
+func TestRefetchedAdaptedReportIsCountedOnce(t *testing.T) {
+	rules, err := mapper.ParseVolcanicAdaptations("rename:alert_status=alert_level")
+	if err != nil {
+		t.Fatalf("rules: %v", err)
+	}
+	var logs bytes.Buffer
+	store := &fakeStore{}
+	for i := range 2 {
+		if err := pvmbgCycleWith(t, reports(renamedField), store, rules, &logs); err != nil {
+			t.Fatalf("cycle %d: %v", i, err)
+		}
+	}
+	if n := countLogLines(t, logs.String(), map[string]any{"msg": "adaptation_applied"}); n != 1 {
+		t.Errorf("%d adaptation_applied lines, want 1", n)
+	}
+}
+
+func hasLogLine(t *testing.T, logs string, want map[string]any) bool {
+	t.Helper()
+	return countLogLines(t, logs, want) > 0
+}
+
+func countLogLines(t *testing.T, logs string, want map[string]any) int {
+	t.Helper()
+	n := 0
+	for _, line := range strings.Split(strings.TrimSpace(logs), "\n") {
+		var got map[string]any
+		if err := json.Unmarshal([]byte(line), &got); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		match := true
+		for k, v := range want {
+			if got[k] != v {
+				match = false
+			}
+		}
+		if match {
+			n++
+		}
+	}
+	return n
 }
 
 func TestFailedDLQWriteKeepsTheCursor(t *testing.T) {
@@ -191,5 +274,20 @@ func TestOversizedResponseIsParkedWithoutHoldingIt(t *testing.T) {
 	}
 	if len(store.saved) != 0 || !store.cursor.Equal(priorCursor) {
 		t.Errorf("oversized response was partly processed")
+	}
+}
+
+// A malformed response between 1 and 10 MiB is parked whole with its real code, not too_large.
+func TestLargeMalformedResponseKeepsItsRealCode(t *testing.T) {
+	body := `{"reports":[` + goodReport + strings.Repeat(" ", 2<<20)
+	store := &fakeStore{}
+	if err := pvmbgCycle(t, body, store); err == nil {
+		t.Error("cycle succeeded on a malformed response")
+	}
+	if len(store.unprocessed) != 1 {
+		t.Fatalf("unprocessed %d, want 1", len(store.unprocessed))
+	}
+	if m := store.unprocessed[0]; m.Code != model.ReasonMalformedJSON || len(m.Payload) != 64<<10 || m.PayloadSize != int64(len(body)) {
+		t.Errorf("code %q stored %d of %d bytes, want malformed_json 65536 of %d", m.Code, len(m.Payload), m.PayloadSize, len(body))
 	}
 }
