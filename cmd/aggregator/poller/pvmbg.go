@@ -91,7 +91,7 @@ func (p *pvmbgPoller) cycle(ctx context.Context) error {
 			newCursor = t.UTC()
 		}
 
-		h, err := mapper.Volcanic(raw, p.lookup, now)
+		h, err := mapper.Volcanic(raw, p.lookup, mapper.VolcanicAdaptations{}, now)
 		if err != nil {
 			rec.park(ctx, mapper.EndpointVolcanicReports, raw, err)
 			continue
