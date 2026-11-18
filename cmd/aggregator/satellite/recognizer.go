@@ -12,9 +12,18 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 )
 
+// Window of recomputation, measured from the newest satellite time in the database.
+// Observed fires last at most ~16 h, so much older detections can no longer join new ones.
+const (
+	DetectionWindow = 72 * time.Hour
+	// SettleMargin: fires whose earliest detection is older than (window - margin) are frozen,
+	// because clusters at the window edge may be truncated.
+	SettleMargin = 24 * time.Hour
+)
+
 type Store interface {
 	ActiveDetections(ctx context.Context) ([]Detection, error)
-	ListWildfires(ctx context.Context) ([]model.HazardEvent, error)
+	ListWildfires(ctx context.Context, since time.Time) ([]model.HazardEvent, error)
 	SaveWildfire(ctx context.Context, h model.HazardEvent) (string, error)
 	Version(ctx context.Context) (int64, error)
 }
@@ -27,6 +36,7 @@ type Result struct {
 	Updated    int
 	Retracted  int
 	Unchanged  int
+	Frozen     int
 	Duration   time.Duration
 }
 
@@ -104,8 +114,22 @@ func (r *Recognizer) Tick(ctx context.Context) error {
 	r.log.Info("wildfire_recompute", "version", ver,
 		"detections", res.Detections, "fires", res.Fires, "singles", res.Singles,
 		"created", res.Created, "updated", res.Updated, "retracted", res.Retracted,
-		"unchanged", res.Unchanged, "ms", res.Duration.Milliseconds())
+		"unchanged", res.Unchanged, "frozen", res.Frozen, "ms", res.Duration.Milliseconds())
 	return nil
+}
+
+// freezeCutoff: fires with the earliest detection before this time are left untouched.
+func freezeCutoff(dets []Detection) time.Time {
+	var newest time.Time
+	for i := range dets {
+		if dets[i].AcqTime.After(newest) {
+			newest = dets[i].AcqTime
+		}
+	}
+	if newest.IsZero() {
+		return time.Time{}
+	}
+	return newest.Add(-(DetectionWindow - SettleMargin))
 }
 
 func (r *Recognizer) Recompute(ctx context.Context) (Result, error) {
@@ -114,7 +138,8 @@ func (r *Recognizer) Recompute(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	existing, err := r.store.ListWildfires(ctx)
+	cutoff := freezeCutoff(dets)
+	existing, err := r.store.ListWildfires(ctx, cutoff)
 	if err != nil {
 		return Result{}, err
 	}
@@ -130,6 +155,10 @@ func (r *Recognizer) Recompute(ctx context.Context) (Result, error) {
 
 	for _, g := range groups {
 		f := BuildFire(g)
+		if f.OccurredAt.Before(cutoff) {
+			res.Frozen++
+			continue
+		}
 		h := ToHazard(f, now)
 		seen[h.SourceRefID] = true
 		if cur, ok := byRef[h.SourceRefID]; ok && SameHazard(cur, h) {

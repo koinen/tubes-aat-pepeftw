@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/satellite"
@@ -12,10 +13,11 @@ const selectActiveDetections = `
 SELECT detection_key, COALESCE(satellite, ''), acq_time, latitude, longitude,
        COALESCE(confidence, ''), COALESCE(frp, 0), COALESCE(received_at, now())
 FROM satellite_detection
-WHERE NOT retracted AND COALESCE(confidence, '') <> 'l'`
+WHERE NOT retracted AND COALESCE(confidence, '') <> 'l'
+  AND acq_time >= (SELECT max(acq_time) FROM satellite_detection) - ($1 * INTERVAL '1 second')`
 
 const selectWildfires = selectHazardColumns + `
-WHERE source = 'SATELIT' AND hazard_type = 'WILDFIRE'`
+WHERE source = 'SATELIT' AND hazard_type = 'WILDFIRE' AND occurred_at >= $1`
 
 const selectProgress = `
 SELECT s.last_offset, (SELECT count(*) FROM satellite_late)
@@ -23,7 +25,7 @@ FROM satellite_feed_state s
 WHERE s.id`
 
 func (p *PostgresRepository) ActiveDetections(ctx context.Context) ([]satellite.Detection, error) {
-	rows, err := p.pool.Query(ctx, selectActiveDetections)
+	rows, err := p.pool.Query(ctx, selectActiveDetections, satellite.DetectionWindow.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("active detections: %w", err)
 	}
@@ -45,8 +47,8 @@ func (p *PostgresRepository) ActiveDetections(ctx context.Context) ([]satellite.
 	return out, nil
 }
 
-func (p *PostgresRepository) ListWildfires(ctx context.Context) ([]model.HazardEvent, error) {
-	rows, err := p.pool.Query(ctx, selectWildfires)
+func (p *PostgresRepository) ListWildfires(ctx context.Context, since time.Time) ([]model.HazardEvent, error) {
+	rows, err := p.pool.Query(ctx, selectWildfires, since)
 	if err != nil {
 		return nil, fmt.Errorf("list wildfires: %w", err)
 	}
