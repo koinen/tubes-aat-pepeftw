@@ -9,6 +9,8 @@ info:
     Scope hazard:read:summary hanya menerima field RINGKASAN. Scope hazard:read:raw menerima semua field.
     Pesan gagal (/unprocessed) hanya untuk BNPB Internal Ops: scope hazard:read:unprocessed untuk melihat,
     hazard:replay:unprocessed untuk replay.
+    Laporan lapangan (POST /field-reports) hanya untuk Tim Lapangan: scope field-report:write.
+    Body request di semua route dibatasi 64 KiB; yang lebih besar menghasilkan 413.
     Tidak pernah mengembalikan 500 pada skenario outage PVMBG dan tidak pernah menggantung.
 servers:
   - url: http://localhost:8080
@@ -230,6 +232,68 @@ paths:
           $ref: './common.yaml#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/OpsUnavailable'
+  /field-reports:
+    post:
+      operationId: submitFieldReport
+      description: |
+        Mengirim laporan lapangan. Butuh scope field-report:write (hanya field-team).
+        202 baru dikirim setelah laporan tersimpan di topic field-reports pada semua replika in-sync (acks=all),
+        jadi laporan yang mendapat 202 tidak hilang. Aggregator menyimpannya kemudian, satu baris per (subject, Idempotency-Key).
+        Kirim ulang dengan Idempotency-Key yang sama setelah 503, 429, atau timeout: report_id-nya sama dan laporan
+        tetap tersimpan satu kali. Body berbeda dengan key yang sama tidak menimpa laporan pertama; body itu diparkir
+        di DLQ (source TIM_LAPANGAN, kode idempotency_conflict).
+        Body yang tidak lolos validasi (UTF-8 tidak valid, nesting lebih dari 32, JSON terpotong, field tak dikenal,
+        field wajib hilang atau di luar rentang) menghasilkan 400 dan tidak dikirim ke mana pun.
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Kunci klien untuk satu laporan. 1–128 karakter ASCII yang terlihat (0x21–0x7E); selain itu 400.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[\x21-\x7E]{1,128}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FieldReportRequest'
+      responses:
+        '202':
+          description: Laporan diterima Kafka dan akan disimpan aggregator.
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldReportAccepted'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenScope'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          description: |
+            UPSTREAM_UNAVAILABLE. Kafka tidak mengonfirmasi laporan dalam 5 detik. Laporan mungkin tetap tertulis;
+            kirim ulang dengan Idempotency-Key yang sama setelah Retry-After.
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+            Retry-After:
+              $ref: './common.yaml#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/ErrorResponse'
   /health:
     get:
       operationId: health
@@ -295,7 +359,60 @@ components:
         attributes:
           type: object
           additionalProperties: true
+    FieldReportRequest:
+      type: object
+      additionalProperties: false
+      required: [latitude, longitude, reported_at, description]
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        reported_at:
+          type: string
+          format: date-time
+          description: RFC 3339.
+        description:
+          type: string
+          minLength: 1
+          description: Paling banyak 4096 byte UTF-8.
+        hazard_id:
+          type: string
+          format: uuid
+          description: Opsional. Hanya format UUID yang dicek, bukan keberadaan hazard-nya.
+      example:
+        latitude: -7.54
+        longitude: 110.44
+        reported_at: '2026-11-18T03:00:00Z'
+        description: Abu vulkanik turun di Dusun Kaliurang
+        hazard_id: 7d0e6f1c-0d7b-5c55-9a0e-5f0a1d2b3c4d
+    FieldReportAccepted:
+      type: object
+      required: [report_id, status]
+      properties:
+        report_id:
+          type: string
+          format: uuid
+          description: UUIDv5 dari subject JWT dan Idempotency-Key; kiriman ulang dengan key yang sama mendapat report_id yang sama.
+        status:
+          type: string
+          enum: [accepted]
   responses:
+    PayloadTooLarge:
+      description: VALIDATION_ERROR dengan status 413. Body lebih dari 64 KiB; ditolak sebelum dibaca.
+      headers:
+        X-Correlation-ID:
+          $ref: './common.yaml#/components/headers/CorrelationId'
+      content:
+        application/json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ErrorResponse'
     ForbiddenScope:
       description: FORBIDDEN. Token sah, tetapi tidak memegang scope yang dibutuhkan route ini.
       headers:

@@ -80,14 +80,22 @@ func main() {
 	}
 	defer kafkaClient.Close()
 
-	// --- 5. Fiber Application Setup ---
+	// --- 5. Field-Report Producer (connects on the first report) ---
+	reports, err := kafka.NewFieldReportProducer(cfg.Kafka.Brokers, cfg.Kafka.FieldReportsTopic)
+	if err != nil {
+		log.Fatal("Failed to create field-report producer:", err)
+	}
+	defer reports.Close()
+
+	// --- 6. Fiber Application Setup ---
 	verifier := auth.NewVerifier(jwks, cfg.Auth.JWTIssuer, cfg.Auth.JWTAudience, denylist)
 	limiter := ratelimit.New(redisClient, cfg.RateLimit)
 	capacity := concurrency.New(cfg.Concurrency.MaxRequests)
 	app := newApp(appDeps{
-		Agg:     aggClient,
-		Protect: []any{capacity.Middleware, verifier.Middleware, limiter.Middleware},
-		Log:     logger,
+		Agg:          aggClient,
+		FieldReports: reports,
+		Protect:      []any{capacity.Middleware, verifier.Middleware, limiter.Middleware},
+		Log:          logger,
 	})
 
 	logger.Info("Starting Client API service", "port", cfg.Server.Port)

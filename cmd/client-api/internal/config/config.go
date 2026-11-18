@@ -30,6 +30,8 @@ type KafkaConfig struct {
 	Brokers string
 	Topic   string
 	GroupID string
+	// FieldReportsTopic receives accepted field reports.
+	FieldReportsTopic string
 }
 
 type AggregatorConfig struct {
@@ -75,6 +77,8 @@ func LoadConfig() (*Config, error) {
 		Brokers: shared.GetEnv("KAFKA_BROKERS", "localhost:9092"),
 		Topic:   shared.GetEnv("KAFKA_TOPIC_AUTH_REVOCATIONS", "auth-revocations"),
 		GroupID: shared.GetEnv("KAFKA_GROUP_ID", "client-api-revocations"),
+
+		FieldReportsTopic: shared.GetEnv("KAFKA_TOPIC_FIELD_REPORTS", "field-reports"),
 	}
 
 	aggBaseURL := strings.TrimRight(shared.GetEnv("AGGREGATOR_URL", "http://localhost:8081"), "/")

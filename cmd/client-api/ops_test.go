@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
@@ -38,12 +39,15 @@ type testAPI struct {
 	key  ed25519.PrivateKey
 	call func(req *http.Request) (*http.Response, error)
 	seen []seenRequest
+	// reports is the fake Kafka behind POST /field-reports.
+	reports *fakePublisher
+	app     *fiber.App
 }
 
 // newTestAPI runs client-api's router against a fake aggregator that answers with status and body.
 func newTestAPI(t *testing.T, opsToken string, status int, body string) *testAPI {
 	t.Helper()
-	api := &testAPI{t: t}
+	api := &testAPI{t: t, reports: &fakePublisher{}}
 	agg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		api.seen = append(api.seen, seenRequest{
 			method: r.Method, uri: r.URL.RequestURI(), auth: r.Header.Get("Authorization"),
@@ -64,10 +68,12 @@ func newTestAPI(t *testing.T, opsToken string, status int, body string) *testAPI
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	verifier := auth.NewVerifier(&auth.JWKS{PublicKey: pub, Kid: testKid}, testIssuer, testAudience, nil)
 	app := newApp(appDeps{
-		Agg:     aggregator.NewClient(config.AggregatorConfig{BaseURL: agg.URL, InternalKey: "internal", OpsToken: opsToken}, log),
-		Protect: []any{verifier.Middleware},
-		Log:     log,
+		Agg:          aggregator.NewClient(config.AggregatorConfig{BaseURL: agg.URL, InternalKey: "internal", OpsToken: opsToken}, log),
+		FieldReports: api.reports,
+		Protect:      []any{verifier.Middleware},
+		Log:          log,
 	})
+	api.app = app
 	api.call = func(req *http.Request) (*http.Response, error) { return app.Test(req) }
 	return api
 }
@@ -94,7 +100,12 @@ func (a *testAPI) token(sub, scope string) string {
 // do sends method target with a token for sub and scope ("" sends no token).
 func (a *testAPI) do(method, target, sub, scope string) (int, map[string]any, http.Header) {
 	a.t.Helper()
-	req := httptest.NewRequest(method, target, nil)
+	return a.send(httptest.NewRequest(method, target, nil), sub, scope)
+}
+
+// send sends req with a token for sub and scope ("" sends no token).
+func (a *testAPI) send(req *http.Request, sub, scope string) (int, map[string]any, http.Header) {
+	a.t.Helper()
 	if scope != "" {
 		req.Header.Set("Authorization", "Bearer "+a.token(sub, scope))
 	}

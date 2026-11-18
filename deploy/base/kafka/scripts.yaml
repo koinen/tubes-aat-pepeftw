@@ -43,4 +43,9 @@ data:
       --replication-factor "$TOPIC_REPLICATION_FACTOR" \
       --config retention.ms=600000 \
       --config min.insync.replicas="$TOPIC_MIN_INSYNC_REPLICAS"
+    "$topics" --bootstrap-server "$KAFKA_BROKERS" --create --if-not-exists \
+      --topic "$KAFKA_TOPIC_FIELD_REPORTS" --partitions 3 \
+      --replication-factor "$TOPIC_REPLICATION_FACTOR" \
+      --config retention.ms=604800000 \
+      --config min.insync.replicas="$TOPIC_MIN_INSYNC_REPLICAS"
     "$topics" --bootstrap-server "$KAFKA_BROKERS" --describe

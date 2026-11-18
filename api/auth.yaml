@@ -9,7 +9,7 @@ info:
     | client_id | scope | refresh |
     |---|---|---|
     | media | hazard:read:summary | tidak |
-    | field-team | hazard:read:raw | ya |
+    | field-team | hazard:read:raw field-report:write | ya |
     | bnpb-ops | hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed | tidak |
 
     Klaim scope berisi daftar scope dipisah spasi.
@@ -88,8 +88,9 @@ components:
       type: string
       description: |
         Daftar scope dipisah spasi. Nilai yang mungkin: hazard:read:summary, hazard:read:raw,
-        hazard:read:unprocessed (melihat pesan gagal), hazard:replay:unprocessed (replay pesan gagal).
-      examples: ['hazard:read:summary', 'hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed']
+        hazard:read:unprocessed (melihat pesan gagal), hazard:replay:unprocessed (replay pesan gagal),
+        field-report:write (mengirim laporan lapangan).
+      examples: ['hazard:read:summary', 'hazard:read:raw field-report:write', 'hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed']
     ClientCredentialsRequest:
       type: object
       required: [grant_type, client_id, client_secret]

@@ -170,7 +170,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/sources/status"
 | Klien | `client_id` | *Scope* | Akses |
 |---|---|---|---|
 | Media | `media` | `hazard:read:summary` | Ringkasan saja; meminta field mentah menghasilkan `403 FORBIDDEN_FIELD`. |
-| Tim lapangan | `field-team` | `hazard:read:raw` | Data lengkap. |
+| Tim lapangan | `field-team` | `hazard:read:raw field-report:write` | Data lengkap, ditambah mengirim laporan lapangan (`POST /field-reports`, hanya klien ini). |
 | BNPB | `bnpb-ops` | `hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed` | Data lengkap, ditambah pesan gagal dan *replay*-nya (hanya klien ini). |
 
 Klaim `scope` berisi daftar *scope* dipisah spasi. Klien tanpa *scope* yang dibutuhkan sebuah route mendapat `403 FORBIDDEN`.
