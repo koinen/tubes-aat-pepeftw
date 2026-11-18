@@ -71,6 +71,12 @@ spec:
                 secretKeyRef:
                   name: bnpb-secrets
                   key: SATELLITE_TOKEN
+            # Sensor Pantai's own Secret (C8); not copied into bnpb-secrets.
+            - name: PANTAI_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: pantai-token
+                  key: token
             - name: AUDIT_TOKEN
               valueFrom:
                 secretKeyRef:

@@ -91,7 +91,8 @@ func (p *PostgresRepository) emitWildfire(ctx context.Context, tx pgx.Tx, h mode
 		return err
 	}
 	_, err = tx.Exec(ctx, insertOutbox,
-		msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx)), nullable(telemetry.TraceParent(ctx)))
+		msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx)), nullable(telemetry.TraceParent(ctx)),
+		outboxPriority(h))
 	return err
 }
 

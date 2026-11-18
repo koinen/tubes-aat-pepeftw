@@ -73,7 +73,7 @@ func (p *bmkgPoller) cycle(ctx context.Context) error {
 	rec := newRecorder(p.dlq, p.log, model.SourceBMKG, now)
 
 	// 1. TsunamiWarning
-	body, err := p.f.get(ctx, "/tsunami-warnings", since)
+	body, err := p.f.get(ctx, "/tsunami-warnings", sinceQuery(since))
 	var rawWarnings []json.RawMessage
 	if err := rec.decode(ctx, mapper.EndpointTsunamiWarnings, body, err, &rawWarnings); err != nil {
 		return err
@@ -99,7 +99,7 @@ func (p *bmkgPoller) cycle(ctx context.Context) error {
 	}
 
 	// 2. SeismicEvent
-	body, err = p.f.get(ctx, "/seismic-events", since)
+	body, err = p.f.get(ctx, "/seismic-events", sinceQuery(since))
 	var rawEvents []json.RawMessage
 	if err := rec.decode(ctx, mapper.EndpointSeismicEvents, body, err, &rawEvents); err != nil {
 		return err

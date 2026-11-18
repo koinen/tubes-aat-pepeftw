@@ -24,8 +24,16 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT DO NOTHING`
 
 const insertOutbox = `
-INSERT INTO outbox (event_id, hazard_id, event_type, payload, correlation_id, trace_parent)
-VALUES ($1, $2, $3, $4, $5, $6)`
+INSERT INTO outbox (event_id, hazard_id, event_type, payload, correlation_id, trace_parent, priority)
+VALUES ($1, $2, $3, $4, $5, $6, $7)`
+
+// outboxPriority puts AWAS events ahead of the rest in the relay's queue, whatever their source.
+func outboxPriority(h model.HazardEvent) int16 {
+	if h.Severity == model.SeverityAwas {
+		return 1
+	}
+	return 0
+}
 
 const selectHazardColumns = `
 SELECT hazard_id::text, source, source_ref_id, hazard_type, severity, area_name,
@@ -81,7 +89,8 @@ func insertHazardWithOutbox(ctx context.Context, tx pgx.Tx, h model.HazardEvent,
 		return false, err
 	}
 	if _, err := tx.Exec(ctx, insertOutbox,
-		msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx)), nullable(telemetry.TraceParent(ctx))); err != nil {
+		msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx)), nullable(telemetry.TraceParent(ctx)),
+		outboxPriority(h)); err != nil {
 		return false, err
 	}
 	return true, nil

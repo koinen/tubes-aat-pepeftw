@@ -80,7 +80,7 @@ func (p *pvmbgPoller) cycle(ctx context.Context) error {
 	var needed []string
 	rules := p.rules.WithObserver(func(rule, _ string) { needed = append(needed, rule) })
 	rec := newRecorder(p.dlq, p.log, model.SourcePVMBG, now)
-	body, err := p.f.get(ctx, "/volcanic-reports", since)
+	body, err := p.f.get(ctx, "/volcanic-reports", sinceQuery(since))
 	var resp struct {
 		Reports []json.RawMessage `json:"reports"`
 	}

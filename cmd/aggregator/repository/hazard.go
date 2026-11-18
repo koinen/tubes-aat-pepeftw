@@ -47,5 +47,9 @@ func (f HazardFilter) EffectiveLimit() int {
 
 type HazardReader interface {
 	ListHazards(ctx context.Context, f HazardFilter) (Page[model.HazardEvent], error)
+	HazardGetter
+}
+
+type HazardGetter interface {
 	GetHazard(ctx context.Context, hazardID string) (model.HazardEvent, error)
 }
