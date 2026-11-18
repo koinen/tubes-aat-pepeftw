@@ -13,7 +13,7 @@ const selectPendingOutbox = `
 SELECT id, event_id::text, hazard_id::text, payload, COALESCE(correlation_id, ''), COALESCE(trace_parent, '')
 FROM outbox
 WHERE published_at IS NULL
-ORDER BY id
+ORDER BY priority DESC, id
 LIMIT $1`
 
 const markOutboxPublished = `

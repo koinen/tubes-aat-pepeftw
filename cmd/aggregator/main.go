@@ -182,6 +182,8 @@ func run(log *slog.Logger) error {
 							Cursors:     repo,
 							Statuses:    repo,
 							Volcanoes:   repo,
+							Existing:    repo,
+							Positions:   repo,
 							Log:         log,
 						}).Run(leadCtx)
 					}()

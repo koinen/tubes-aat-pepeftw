@@ -19,6 +19,12 @@ type Config struct {
 	PVMBGURL   string
 	PVMBGToken string
 
+	// SensorPantaiURL is empty when Sensor Pantai is not deployed; its runner is then not started.
+	SensorPantaiURL          string
+	SensorPantaiToken        string
+	SensorPantaiPollInterval time.Duration
+	SensorPantaiTimeout      time.Duration
+
 	PollInterval  time.Duration
 	BMKGTimeout   time.Duration
 	PVMBGTimeout  time.Duration
@@ -39,6 +45,9 @@ func LoadConfig() (Config, error) {
 		BMKGAPIKey: os.Getenv("BMKG_API_KEY"),
 		PVMBGURL:   strings.TrimRight(getenv("PVMBG_URL", "http://pvmbg-mock:8080"), "/"),
 		PVMBGToken: os.Getenv("PVMBG_TOKEN"),
+
+		SensorPantaiURL:   strings.TrimRight(os.Getenv("SENSOR_PANTAI_URL"), "/"),
+		SensorPantaiToken: os.Getenv("PANTAI_AUTH_TOKEN"),
 	}
 
 	var err error
@@ -56,6 +65,8 @@ func LoadConfig() (Config, error) {
 		{"POLL_CURSOR_OVERLAP", time.Minute, &cfg.CursorOverlap},
 		{"BREAKER_OPEN_FOR", 15 * time.Second, &cfg.BreakerOpenFor},
 		{"TSUNAMI_GRACE", 30 * time.Second, &cfg.TsunamiGrace},
+		{"SENSOR_PANTAI_POLL_INTERVAL", time.Second, &cfg.SensorPantaiPollInterval},
+		{"SENSOR_PANTAI_TIMEOUT", 2 * time.Second, &cfg.SensorPantaiTimeout},
 	}
 	for _, d := range durations {
 		v, err := time.ParseDuration(getenv(d.key, d.def.String()))
@@ -83,6 +94,10 @@ func LoadConfig() (Config, error) {
 		return cfg, errors.New("PVMBG_TOKEN is required when POLLER_ENABLED=true")
 	case cfg.PollInterval <= 0 || cfg.BMKGTimeout <= 0 || cfg.PVMBGTimeout <= 0:
 		return cfg, errors.New("POLL_INTERVAL, BMKG_TIMEOUT, and PVMBG_TIMEOUT must be positive")
+	case cfg.SensorPantaiURL != "" && cfg.SensorPantaiToken == "":
+		return cfg, errors.New("PANTAI_AUTH_TOKEN is required when SENSOR_PANTAI_URL is set")
+	case cfg.SensorPantaiURL != "" && (cfg.SensorPantaiPollInterval <= 0 || cfg.SensorPantaiTimeout <= 0):
+		return cfg, errors.New("SENSOR_PANTAI_POLL_INTERVAL and SENSOR_PANTAI_TIMEOUT must be positive")
 	}
 	return cfg, nil
 }

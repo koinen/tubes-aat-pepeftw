@@ -45,10 +45,18 @@ func newFetcher(source model.Source, baseURL string, timeout time.Duration, auth
 	}
 }
 
-func (f *fetcher) get(ctx context.Context, path string, since *time.Time) ([]byte, error) {
+// sinceQuery is the query for a poll from since, or no query when since is nil.
+func sinceQuery(since *time.Time) url.Values {
+	if since == nil {
+		return nil
+	}
+	return url.Values{"since": {since.UTC().Format(time.RFC3339)}}
+}
+
+func (f *fetcher) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	u := f.baseURL + path
-	if since != nil {
-		u += "?since=" + url.QueryEscape(since.UTC().Format(time.RFC3339))
+	if len(query) > 0 {
+		u += "?" + query.Encode()
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, f.timeout)
@@ -86,7 +94,7 @@ func (f *fetcher) get(ctx context.Context, path string, since *time.Time) ([]byt
 		return nil, fmt.Errorf("GET %s: read body: %w", path, readErr)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("GET %s: status %d", path, resp.StatusCode)
+		return nil, &StatusError{Path: path, Code: resp.StatusCode}
 	}
 	if int64(len(body)) > f.maxBody {
 		return nil, f.oversized(path, body, resp.Body)
@@ -111,3 +119,11 @@ func (f *fetcher) oversized(path string, head []byte, rest io.Reader) error {
 	copy(over.SHA256[:], h.Sum(nil))
 	return over
 }
+
+// StatusError is a response outside 2xx.
+type StatusError struct {
+	Path string
+	Code int
+}
+
+func (e *StatusError) Error() string { return fmt.Sprintf("GET %s: status %d", e.Path, e.Code) }

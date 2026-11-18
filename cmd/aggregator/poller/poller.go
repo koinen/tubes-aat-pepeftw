@@ -19,6 +19,10 @@ type Deps struct {
 	Volcanoes   repository.VolcanoRefRepository
 	Log         *slog.Logger
 	Now         func() time.Time
+
+	// Used by the Sensor Pantai poller.
+	Existing  repository.HazardGetter
+	Positions repository.StreamCursorRepository
 }
 
 type Poller struct {
@@ -35,7 +39,7 @@ func New(cfg Config, d Deps) *Poller {
 	pvmbgFetch := newFetcher(model.SourcePVMBG, cfg.PVMBGURL, cfg.PVMBGTimeout,
 		func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+cfg.PVMBGToken) }, d.Log, d.Now)
 
-	return &Poller{runners: []*runner{
+	runners := []*runner{
 		{
 			source: model.SourceBMKG, interval: cfg.PollInterval,
 			breaker:  NewBreaker(cfg.BreakerFailures, cfg.BreakerOpenFor),
@@ -46,7 +50,18 @@ func New(cfg Config, d Deps) *Poller {
 			breaker:  NewBreaker(cfg.BreakerFailures, cfg.BreakerOpenFor),
 			statuses: d.Statuses, cycle: newPVMBGPoller(pvmbgFetch, d, cfg).cycle, log: d.Log, now: d.Now,
 		},
-	}}
+	}
+	if cfg.SensorPantaiURL != "" {
+		sensorFetch := newFetcher(model.SourceSensorPantai, cfg.SensorPantaiURL, cfg.SensorPantaiTimeout,
+			func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+cfg.SensorPantaiToken) }, d.Log, d.Now)
+		runners = append(runners, &runner{
+			source: model.SourceSensorPantai, interval: cfg.SensorPantaiPollInterval,
+			// C10 replaces this breaker with the sensor's own values.
+			breaker:  NewBreaker(cfg.BreakerFailures, cfg.BreakerOpenFor),
+			statuses: d.Statuses, cycle: newSensorPantaiPoller(sensorFetch, d).cycle, log: d.Log, now: d.Now,
+		})
+	}
+	return &Poller{runners: runners}
 }
 
 func (p *Poller) Run(ctx context.Context) {
