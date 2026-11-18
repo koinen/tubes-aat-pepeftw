@@ -121,10 +121,10 @@ kubectl apply -f https://raw.githubusercontent.com/susTuna/if4031-tester-agent/e
 
 ## 8. Tiga broker Kafka
 
-Overlay `vm` memakai satu broker agar muat di satu laptop. Bila VM tersebar di beberapa laptop, ubah di `deploy/overlays/vm/kustomization.yaml`:
+Overlay `vm` memakai tiga broker dengan replikasi topic dari base (RF 3, min.insync 2), karena VM tersebar di beberapa laptop. Bila seluruh VM dijalankan di satu laptop, ubah di `deploy/overlays/vm/kustomization.yaml`:
 
-1. `kafka` count menjadi `3`.
-2. hapus baris `- path: kafka-config.yaml` sehingga replikasi topic kembali ke nilai base (RF 3, min.insync 2).
+1. `kafka` count menjadi `1`.
+2. tambahkan `- path: kafka-config.yaml` di bawah `patches:` sehingga replikasi topic turun ke 1.
 
 ## 9. Yang belum teruji sebelum pertemuan
 
