@@ -72,6 +72,44 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /admin/corrupt:
+    post:
+      operationId: setCorrupt
+      security:
+        - AdminKey: []
+      description: >-
+        Ekstensi admin khusus pengujian (P3 K3), mati secara default. N respons GET /volcanic-reports berikutnya yang lolos
+        autentikasi dibalas 200 dengan body rusak, lalu mode ini mati sendiri. truncated memotong respons asli di tengah;
+        deep mengirim reports bersarang 10.000 level; invalid_utf8 menyisipkan byte 0xFF 0xFE ke dalam generated_at;
+        oversized mengirim JSON valid berukuran 50 MiB secara streaming. Laporan di store tidak berubah, jadi respons
+        berikutnya kembali normal. count 0 mematikan mode ini.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind:
+                  type: string
+                  enum: [truncated, deep, invalid_utf8, oversized]
+                count:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                  default: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /admin/outage:
     post:
       operationId: setOutage
@@ -175,7 +213,7 @@ components:
           format: date-time
     AdminState:
       type: object
-      required: [schema_version, schema_mode, outage]
+      required: [schema_version, schema_mode, outage, corrupt]
       properties:
         schema_version:
           type: integer
@@ -192,6 +230,16 @@ components:
             mode:
               type: string
               enum: [hang, error]
+        corrupt:
+          type: object
+          required: [remaining]
+          properties:
+            kind:
+              type: string
+              enum: [truncated, deep, invalid_utf8, oversized]
+            remaining:
+              type: integer
+              minimum: 0
     ErrorResponse:
       type: object
       required: [error]
