@@ -48,6 +48,7 @@ wait_pods_running() {
 
 deploy_all() {
   apply_stage infra
+  apply_stage sensor
   wait_pods_running crdb
   wait_rollouts statefulset kafka
   wait_rollouts deployment auth-store client-api-store
@@ -59,6 +60,7 @@ deploy_all() {
   recreate_jobs migrate
   wait_jobs aggregator-migrate
 
+  wait_rollouts deployment sensor-pantai
   apply_stage apps
   wait_rollouts deployment aggregator auth client-api notifier dashboard-updater bmkg-mock pvmbg-mock analytics-dashboard
 }

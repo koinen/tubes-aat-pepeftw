@@ -1,0 +1,26 @@
+# Switches Sensor Pantai to the exam profile. The exam bundle is opened with the key
+# file from the assistant, held in Secret pantai-key (created by scripts/deploy/secrets.sh).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: sensor-pantai
+      spec:
+        template:
+          spec:
+            containers:
+              - name: sensor
+                env:
+                  - name: PANTAI_PROFILE
+                    value: exam
+                volumeMounts:
+                  - name: key
+                    mountPath: /var/run/pantai
+                    readOnly: true
+            volumes:
+              - name: key
+                secret:
+                  secretName: pantai-key
