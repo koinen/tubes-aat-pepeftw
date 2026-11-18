@@ -33,11 +33,19 @@ type fetcher struct {
 }
 
 func newFetcher(source model.Source, baseURL string, timeout time.Duration, auth func(*http.Request), log *slog.Logger, now func() time.Time) *fetcher {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	client := &http.Client{Transport: telemetry.Transport(transport)}
+	if source == model.SourceSensorPantai {
+		transport.MaxConnsPerHost = 2
+		// A reused connection can cause net/http to transparently resend an idempotent GET.
+		transport.DisableKeepAlives = true
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	return &fetcher{
 		maxBody: maxBodyBytes,
 		source:  source,
 		baseURL: baseURL,
-		client:  &http.Client{Transport: telemetry.Transport(http.DefaultTransport.(*http.Transport).Clone())},
+		client:  client,
 		timeout: timeout,
 		auth:    auth,
 		log:     log,
@@ -94,7 +102,7 @@ func (f *fetcher) get(ctx context.Context, path string, query url.Values) ([]byt
 		return nil, fmt.Errorf("GET %s: read body: %w", path, readErr)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &StatusError{Path: path, Code: resp.StatusCode}
+		return body, &StatusError{Path: path, Code: resp.StatusCode}
 	}
 	if int64(len(body)) > f.maxBody {
 		return nil, f.oversized(path, body, resp.Body)

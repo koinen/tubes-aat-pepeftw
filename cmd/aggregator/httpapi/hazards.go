@@ -38,7 +38,7 @@ func (h handlers) listHazards(c fiber.Ctx) error {
 
 	unavailable := page.UnavailableUnits
 	sourcesCtx, cancel := context.WithTimeout(c.Context(), sourcesTimeout)
-	sources, err := sourcesBlock(sourcesCtx, h.statuses)
+	sources, err := h.sourcesBlock(sourcesCtx)
 	cancel()
 	if err != nil {
 		sources = map[model.Source]sourceEntry{}

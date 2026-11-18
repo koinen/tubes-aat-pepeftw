@@ -15,14 +15,15 @@ import (
 )
 
 type Deps struct {
-	Hazards      repository.HazardReader
-	Statuses     repository.SourceStatusRepository
-	Audit        repository.AuditReader
-	Analytics    repository.AnalyticsReader
-	PostgresPing func(context.Context) error
-	KafkaPing    func(context.Context) error
-	InternalKey  string
-	AuditToken   string
+	Hazards             repository.HazardReader
+	Statuses            repository.SourceStatusRepository
+	SensorPantaiEnabled bool
+	Audit               repository.AuditReader
+	Analytics           repository.AnalyticsReader
+	PostgresPing        func(context.Context) error
+	KafkaPing           func(context.Context) error
+	InternalKey         string
+	AuditToken          string
 	// Replay and ReplayRules serve the replay API. ReplayRules holds, per replayable source, the
 	// canonical adaptation rules of this pod; a source without an entry cannot be replayed.
 	Replay      repository.ReplayJobs
@@ -34,19 +35,20 @@ type Deps struct {
 }
 
 type handlers struct {
-	hazards       repository.HazardReader
-	statuses      repository.SourceStatusRepository
-	audit         repository.AuditReader
-	analyticsRepo repository.AnalyticsReader
-	replay        repository.ReplayJobs
-	replayRules   map[model.Source]string
+	hazards             repository.HazardReader
+	statuses            repository.SourceStatusRepository
+	sensorPantaiEnabled bool
+	audit               repository.AuditReader
+	analyticsRepo       repository.AnalyticsReader
+	replay              repository.ReplayJobs
+	replayRules         map[model.Source]string
 }
 
 func New(d Deps) *fiber.App {
 	onError := errorHandler(d.Log)
 	app := fiber.New(fiber.Config{ErrorHandler: onError})
 	h := handlers{hazards: d.Hazards, statuses: d.Statuses, audit: d.Audit, analyticsRepo: d.Analytics,
-		replay: d.Replay, replayRules: d.ReplayRules}
+		replay: d.Replay, replayRules: d.ReplayRules, sensorPantaiEnabled: d.SensorPantaiEnabled}
 
 	app.Use(telemetry.Middleware(), correlationID, requestLogger(d.Log, onError), recoverer.New())
 	app.Get("/health", health(d.PostgresPing, d.KafkaPing))

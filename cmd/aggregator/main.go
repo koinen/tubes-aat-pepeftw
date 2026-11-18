@@ -248,18 +248,19 @@ func run(log *slog.Logger) error {
 	}
 
 	app := httpapi.New(httpapi.Deps{
-		Hazards:      repo,
-		Statuses:     repo,
-		Audit:        repo,
-		Analytics:    repo,
-		PostgresPing: pool.Ping,
-		KafkaPing:    producer.Ping,
-		InternalKey:  cfg.InternalAPIKey,
-		AuditToken:   cfg.AuditToken,
-		Replay:       repo,
-		ReplayRules:  replayRules,
-		OpsToken:     cfg.OpsToken,
-		Log:          log,
+		Hazards:             repo,
+		Statuses:            repo,
+		SensorPantaiEnabled: pollerCfg.Enabled && pollerCfg.SensorPantaiURL != "",
+		Audit:               repo,
+		Analytics:           repo,
+		PostgresPing:        pool.Ping,
+		KafkaPing:           producer.Ping,
+		InternalKey:         cfg.InternalAPIKey,
+		AuditToken:          cfg.AuditToken,
+		Replay:              repo,
+		ReplayRules:         replayRules,
+		OpsToken:            cfg.OpsToken,
+		Log:                 log,
 	})
 
 	go func() {

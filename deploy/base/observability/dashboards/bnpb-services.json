@@ -95,6 +95,22 @@
         "legendFormat": "{{service}}"
       }],
       "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Sensor Pantai: readiness /healthz",
+      "description": "Sinyal informatif, tidak dipakai circuit breaker. Nilai menunjukkan umur sampel terakhir dari leader.",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "expr": "time() - topk(1, bnpb_sensor_pantai_healthz_sample_timestamp_seconds)",
+        "legendFormat": "ready={{ready}}",
+        "instant": true
+      }],
+      "options": { "graphMode": "none", "textMode": "value_and_name", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "s" } }
     }
   ]
 }

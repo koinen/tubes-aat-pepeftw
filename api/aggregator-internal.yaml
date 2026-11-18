@@ -150,13 +150,7 @@ paths:
                 required: [data]
                 properties:
                   data:
-                    type: object
-                    required: [BMKG, PVMBG]
-                    properties:
-                      BMKG:
-                        $ref: '#/components/schemas/SourceStatusDetail'
-                      PVMBG:
-                        $ref: '#/components/schemas/SourceStatusDetail'
+                    $ref: './common.yaml#/components/schemas/SourcesStatusMap'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
   /health:
@@ -176,15 +170,3 @@ components:
       in: header
       name: X-Internal-Key
       description: Nilai dari env INTERNAL_API_KEY.
-  schemas:
-    SourceStatusDetail:
-      allOf:
-        - $ref: './common.yaml#/components/schemas/SourceStatusEntry'
-        - type: object
-          required: [breaker_state]
-          properties:
-            breaker_state:
-              type: string
-              enum: [CLOSED, OPEN, HALF_OPEN]
-            last_error:
-              type: [string, 'null']
