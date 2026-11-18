@@ -59,6 +59,7 @@ services:
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_CLIENT_API_REVOCATIONS}
       AGGREGATOR_URL: http://aggregator:8080
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      OPS_TOKEN: ${OPS_TOKEN:-}
       AUTH_JWKS_URL: http://auth:8080/.well-known/jwks.json
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}

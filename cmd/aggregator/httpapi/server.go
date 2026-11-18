@@ -27,7 +27,8 @@ type Deps struct {
 	// canonical adaptation rules of this pod; a source without an entry cannot be replayed.
 	Replay      repository.ReplayJobs
 	ReplayRules map[model.Source]string
-	// OpsToken guards the replay API. Only client-api holds it; the audit token cannot call it.
+	// OpsToken guards the ops API (the unprocessed list and replay). Only client-api holds it; the
+	// audit token cannot call it.
 	OpsToken string
 	Log      *slog.Logger
 }
@@ -57,9 +58,10 @@ func New(d Deps) *fiber.App {
 	audit.Get("/location", h.auditLocation)
 	audit.Get("/unprocessed", h.auditUnprocessed)
 
-	replay := app.Group(replayPrefix, requireBearerToken(d.OpsToken))
-	replay.Post("", h.requestReplay)
-	replay.Get("/:job_id", h.getReplayJob)
+	ops := app.Group(opsPrefix, requireBearerToken(d.OpsToken))
+	ops.Get("", h.auditUnprocessed)
+	ops.Post("/replay", h.requestReplay)
+	ops.Get("/replay/:job_id", h.getReplayJob)
 
 	internalKey := requireInternalKey(d.InternalKey)
 	app.Get("/internal/hazards", internalKey, h.listHazards)

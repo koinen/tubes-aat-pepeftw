@@ -3,9 +3,12 @@ info:
   title: BNPB Client API
   version: 0.1.0
   description: |
-    API publik untuk Media, Tim Lapangan, dan BNPB Ops. Read-only.
+    API publik untuk Media, Tim Lapangan, dan BNPB Ops.
     Data diambil dari Aggregator Internal API, lalu field disaring sesuai scope token.
+    Klaim scope berisi daftar scope dipisah spasi.
     Scope hazard:read:summary hanya menerima field RINGKASAN. Scope hazard:read:raw menerima semua field.
+    Pesan gagal (/unprocessed) hanya untuk BNPB Internal Ops: scope hazard:read:unprocessed untuk melihat,
+    hazard:replay:unprocessed untuk replay.
     Tidak pernah mengembalikan 500 pada skenario outage PVMBG dan tidak pernah menggantung.
 servers:
   - url: http://localhost:8080
@@ -119,6 +122,114 @@ paths:
           $ref: './common.yaml#/components/responses/RateLimited'
         '503':
           $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+  /unprocessed:
+    get:
+      operationId: listUnprocessed
+      description: |
+        Pesan gagal (retrying atau parked) untuk BNPB Internal Ops. Butuh scope hazard:read:unprocessed (hanya bnpb-ops).
+        Hanya metadata, tidak pernah payload. Diteruskan ke aggregator GET /internal/unprocessed (api/ops.yaml).
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - name: source
+          in: query
+          required: false
+          schema:
+            $ref: './common.yaml#/components/schemas/Source'
+        - name: since
+          in: query
+          required: false
+          description: RFC 3339 UTC. Pesan dengan received_at >= since.
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: './ops.yaml#/components/schemas/UnprocessedPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenScope'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/OpsUnavailable'
+  /unprocessed/replay:
+    post:
+      operationId: requestReplay
+      description: |
+        Memutar ulang pesan parked setelah aturan adaptasi dideklarasikan. Butuh scope hazard:replay:unprocessed (hanya bnpb-ops).
+        Subject JWT dicatat sebagai requested_by. Selama masih ada job aktif untuk source itu, job yang sama dikembalikan.
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - name: source
+          in: query
+          required: true
+          description: Hanya PVMBG yang bisa di-replay; source lain menghasilkan 400.
+          schema:
+            $ref: './common.yaml#/components/schemas/Source'
+      responses:
+        '202':
+          description: Job diterima
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, status]
+                properties:
+                  job_id: { type: string, format: uuid }
+                  status: { $ref: './ops.yaml#/components/schemas/ReplayStatus' }
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenScope'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/OpsUnavailable'
+  /unprocessed/replay/{job_id}:
+    get:
+      operationId: getReplayJob
+      description: Status dan hitungan sebuah job replay. Butuh scope hazard:replay:unprocessed.
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - name: job_id
+          in: path
+          required: true
+          description: UUID; selain UUID menghasilkan 400.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: './ops.yaml#/components/schemas/ReplayJob'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenScope'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/OpsUnavailable'
   /health:
     get:
       operationId: health
@@ -185,6 +296,33 @@ components:
           type: object
           additionalProperties: true
   responses:
+    ForbiddenScope:
+      description: FORBIDDEN. Token sah, tetapi tidak memegang scope yang dibutuhkan route ini.
+      headers:
+        X-Correlation-ID:
+          $ref: './common.yaml#/components/headers/CorrelationId'
+      content:
+        application/json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: FORBIDDEN
+              message: 'scope hazard:read:unprocessed diperlukan'
+              correlation_id: 7f3c9a2e-4b1d-4e8a-9c2f-1a2b3c4d5e6f
+    OpsUnavailable:
+      description: |
+        UPSTREAM_UNAVAILABLE. Aggregator atau penyimpanannya tidak terjangkau (dengan Retry-After), atau akses ops
+        belum dikonfigurasi / OPS_TOKEN ditolak aggregator (tanpa Retry-After, karena mencoba lagi tidak menolong).
+      headers:
+        X-Correlation-ID:
+          $ref: './common.yaml#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: './common.yaml#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ErrorResponse'
     ForbiddenField:
       description: FORBIDDEN_FIELD. Token sah, tetapi scope tidak mengizinkan field yang diminta.
       headers:
