@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
+
+	"tubes-aat-pepeftw/internal/poison"
 )
 
 type updater struct {
@@ -17,17 +20,23 @@ func newUpdater(recent *recentHazards, live *broadcaster, log *slog.Logger) *upd
 	return &updater{recent: recent, live: live, log: log, now: time.Now}
 }
 
-func (u *updater) handle(value []byte, correlationID string) {
+// decode reads a hazard-events value. A value it refuses goes to topic unprocessed, under the
+// reason code poison.Reason gives its error.
+func decode(value []byte) (hazardMessage, error) {
 	var msg hazardMessage
+	if err := poison.Check(value); err != nil {
+		return msg, err
+	}
 	if err := json.Unmarshal(value, &msg); err != nil {
-		u.log.Error("message_invalid", "correlation_id", correlationID, "error", err.Error())
-		return
+		return msg, err
 	}
 	if msg.HazardID == "" {
-		u.log.Error("message_invalid", "correlation_id", correlationID, "error", "missing hazard_id")
-		return
+		return msg, errors.New("missing hazard_id")
 	}
+	return msg, nil
+}
 
+func (u *updater) handle(msg hazardMessage, correlationID string) {
 	now := u.now()
 	view := hazardView{
 		HazardID:      msg.HazardID,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
+	"tubes-aat-pepeftw/internal/poison"
 	"tubes-aat-pepeftw/internal/telemetry"
 )
 
@@ -57,7 +58,8 @@ func run(log *slog.Logger) error {
 	}()
 
 	log.Info("dashboard_started", "topic", cfg.topic, "group", cfg.groupID, "port", cfg.port)
-	consume(ctx, client, newUpdater(recent, live, log), log)
+	fwd := poison.NewForwarder(client, cfg.unprocessedTopic, cfg.groupID, log)
+	consume(ctx, client, newUpdater(recent, live, log), fwd, log)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()

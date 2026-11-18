@@ -13,6 +13,9 @@ type config struct {
 	topic     string
 	groupID   string
 	dedupFile string
+
+	// unprocessedTopic receives values this consumer cannot read.
+	unprocessedTopic string
 }
 
 func loadConfig() (config, error) {
@@ -21,6 +24,8 @@ func loadConfig() (config, error) {
 		brokers: splitList(os.Getenv("KAFKA_BROKERS")),
 		topic:   getenv("KAFKA_TOPIC_HAZARD_EVENTS", "hazard-events"),
 		groupID: getenv("KAFKA_GROUP_ID", "audit-log"),
+
+		unprocessedTopic: getenv("KAFKA_TOPIC_UNPROCESSED", "unprocessed"),
 	}
 	if len(cfg.brokers) == 0 {
 		return config{}, errors.New("KAFKA_BROKERS is required")

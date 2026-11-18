@@ -24,6 +24,8 @@ type Config struct {
 
 	// FieldReportsTopic is consumed by every pod into field_reports.
 	FieldReportsTopic string
+	// UnprocessedTopic is consumed by every pod into unprocessed_messages as INTERNAL.
+	UnprocessedTopic string
 }
 
 func Load() (Config, error) {
@@ -59,6 +61,7 @@ func Load() (Config, error) {
 		ShardRead:      shardRead,
 
 		FieldReportsTopic: getenv("KAFKA_TOPIC_FIELD_REPORTS", "field-reports"),
+		UnprocessedTopic:  getenv("KAFKA_TOPIC_UNPROCESSED", "unprocessed"),
 	}
 
 	if cfg.InternalAPIKey == "" {

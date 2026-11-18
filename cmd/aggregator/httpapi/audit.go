@@ -38,7 +38,7 @@ type auditUnprocessedResponse struct {
 }
 
 func (h handlers) auditEvents(c fiber.Ctx) error {
-	f, err := parseAuditFilter(c)
+	f, err := parseAuditFilter(c, parseSource)
 	if err != nil {
 		return writeAuditError(c, fiber.StatusBadRequest, auditBadRequest, err.Error())
 	}
@@ -93,7 +93,7 @@ func (h handlers) auditLocation(c fiber.Ctx) error {
 }
 
 func (h handlers) auditUnprocessed(c fiber.Ctx) error {
-	f, err := parseAuditFilter(c)
+	f, err := parseAuditFilter(c, parseUnprocessedSource)
 	if err != nil {
 		return writeAuditError(c, fiber.StatusBadRequest, auditBadRequest, err.Error())
 	}

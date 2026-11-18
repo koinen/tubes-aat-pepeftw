@@ -103,7 +103,7 @@ paths:
       operationId: auditUnprocessed
       description: Pesan berstatus retrying atau parked. Pesan yang sudah pulih tidak muncul.
       parameters:
-        - $ref: '#/components/parameters/Source'
+        - $ref: '#/components/parameters/UnprocessedSource'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -142,6 +142,12 @@ components:
       name: source
       in: query
       schema: { type: string, enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI] }
+    UnprocessedSource:
+      name: source
+      in: query
+      required: false
+      description: Selain empat sumber bahaya, TIM_LAPANGAN (topic field-reports) dan INTERNAL (consumer hazard-events, lewat topic unprocessed).
+      schema: { type: string, enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI, TIM_LAPANGAN, INTERNAL] }
     SourceRequired:
       name: source
       in: query

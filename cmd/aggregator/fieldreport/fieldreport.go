@@ -14,6 +14,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"tubes-aat-pepeftw/cmd/aggregator/mapper"
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
@@ -21,6 +25,14 @@ import (
 
 	wire "tubes-aat-pepeftw/internal/fieldreport"
 )
+
+// GroupID is the consumer group every aggregator pod joins for topic field-reports.
+const GroupID = "aggregator-field-reports"
+
+var stored = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "bnpb_field_reports_stored_total",
+	Help: "Laporan lapangan yang dibaca dari Kafka: inserted (baru disimpan) atau duplicate (sudah ada, body sama).",
+}, []string{"result"})
 
 // Record is one Kafka record from topic field-reports.
 type Record struct {
@@ -129,6 +141,11 @@ func (h *Handler) Handle(ctx context.Context, r Record) error {
 			return err
 		}
 	}
+}
+
+// HandleRecord is Handle for a record read by kafka.Consumer.
+func (h *Handler) HandleRecord(ctx context.Context, r *kgo.Record) error {
+	return h.Handle(ctx, Record{Topic: r.Topic, Partition: r.Partition, Offset: r.Offset, Value: r.Value})
 }
 
 // apply runs one attempt. A value the store refuses can never be stored, so it is parked as

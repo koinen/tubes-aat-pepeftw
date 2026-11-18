@@ -18,7 +18,7 @@ paths:
       operationId: opsUnprocessed
       description: Pesan berstatus retrying atau parked, sama dengan /internal/audit/unprocessed. Pesan yang sudah pulih tidak muncul.
       parameters:
-        - $ref: '#/components/parameters/Source'
+        - $ref: '#/components/parameters/UnprocessedSource'
         - name: since
           in: query
           required: false
@@ -95,11 +95,12 @@ components:
       scheme: bearer
       description: Nilai dari env OPS_TOKEN.
   parameters:
-    Source:
+    UnprocessedSource:
       name: source
       in: query
       required: false
-      schema: { type: string, enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI] }
+      description: Selain empat sumber bahaya, TIM_LAPANGAN (topic field-reports) dan INTERNAL (consumer hazard-events, lewat topic unprocessed).
+      schema: { type: string, enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI, TIM_LAPANGAN, INTERNAL] }
   schemas:
     UnprocessedMessage:
       type: object
