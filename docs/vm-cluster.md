@@ -128,4 +128,50 @@ Overlay `vm` memakai tiga broker dengan replikasi topic dari base (RF 3, min.ins
 
 ## 9. Yang belum teruji sebelum pertemuan
 
-Skrip `k3s-server.sh`, `k3s-agent.sh`, `fetch-kubeconfig.sh`, dan `tunnel.sh` baru diperiksa sintaksnya, karena membutuhkan VM sungguhan. Push ke GHCR membutuhkan login tim. Manifest overlay `vm` sudah dirender dan divalidasi terhadap Kubernetes.
+Skrip `k3s-server.sh`, `k3s-agent.sh`, `fetch-kubeconfig.sh`, `tunnel.sh`, `tailnet-join.sh`, dan `tailnet-node.sh` baru diperiksa sintaksnya, karena membutuhkan VM sungguhan. Push ke GHCR membutuhkan login tim. Manifest overlay `vm` sudah dirender dan divalidasi terhadap Kubernetes.
+
+## 10. Node di jaringan berbeda lewat Tailscale
+
+Bila laptop tidak berada pada Wi-Fi yang sama, setiap VM bergabung ke satu tailnet Tailscale dan k3s memakai IP tailnet (`100.x.y.z`) pada interface `tailscale0`, bukan IP bridged.
+
+Ada dua skrip:
+
+- `tailnet-join.sh` dijalankan di laptop dari Git Bash. Skrip ini mengunggah `tailnet-node.sh` dan `k3s-*.sh` ke `/tmp` di VM dengan `vagrant upload`, lalu menjalankan `tailnet-node.sh` sebagai root lewat `vagrant ssh`.
+- `tailnet-node.sh` berjalan di dalam VM. Skrip ini memasang Tailscale, masuk tailnet dengan auth key memakai hostname VM, menunggu IP tailnet, lalu sesuai peran: `vpn` berhenti di situ, `server` memasang k3s server di IP tailnet, `agent` memastikan API `node-a` di port 6443 terjangkau lalu join.
+
+1. Pemilik tailnet membuat auth key di admin console Tailscale, Settings, Keys: **reusable**, bukan ephemeral. Bila Device approval aktif, centang juga **pre-approved**. Bagikan secara privat seperti token k3s. Setelah semua VM bergabung, matikan key expiry untuk VM di halaman Machines.
+2. Di laptop pemilik `node-a`, nyalakan VM **tanpa** `K3S_TOKEN` di shell:
+
+```bash
+vagrant up node-a
+```
+
+Provisioner membuat user `bnpb` beserta kunci SSH, lalu berhenti dengan pesan `set K3S_TOKEN before vagrant up node-a`. Pesan ini memang diharapkan, karena k3s tidak boleh terpasang di IP bridged. Jangan pakai `--no-provision`, karena user `bnpb` dibutuhkan oleh `fetch-kubeconfig.sh` dan `tunnel.sh`. Lalu, dari folder repo:
+
+```bash
+TS_AUTHKEY=<key> bash scripts/vm/tailnet-join.sh node-a server
+```
+
+Skrip mencetak IP tailnet `node-a` (`node-a tailnet ip 100.x.y.z`). IP yang sama terlihat di halaman Machines pada admin console. Token join ada di `sudo cat /var/lib/rancher/k3s/server/node-token` pada `node-a`.
+
+3. Di setiap worker:
+
+```bash
+TS_AUTHKEY=<key> K3S_TOKEN=<token> bash scripts/vm/tailnet-join.sh node-c agent <ip-tailnet-node-a>
+```
+
+4. Node cadangan untuk uji node baru cukup masuk tailnet dulu, lalu join dengan perintah langkah 3 saat diminta:
+
+```bash
+TS_AUTHKEY=<key> bash scripts/vm/tailnet-join.sh node-e vpn
+```
+
+5. Laptop yang menjalankan `kubectl` memasang Tailscale dan masuk ke tailnet yang sama. `fetch-kubeconfig.sh <ip-tailnet-node-a>` hanya berhasil dari laptop pemilik `node-a`, karena hanya kunci SSH-nya yang ada di user `bnpb`. Laptop lain memakai salinan `~/.kube/bnpb-vm.yaml` darinya, yang sudah menunjuk ke IP tailnet. `tunnel.sh` opsional di tailnet: NodePort bisa dibuka langsung di `http://<ip-tailnet-node-a>:30080` sampai `30089`.
+
+Catatan:
+
+- VM yang dibuat manual memakai `scripts/vm/tailnet-node.sh` langsung: salin bersama `k3s-*.sh` dengan `scp`, lalu jalankan `sudo TS_AUTHKEY=<key> bash tailnet-node.sh <vpn|server|agent> [ip-tailnet-node-a]`.
+- `tailnet-join.sh` menyetel `MSYS_NO_PATHCONV=1` saat `vagrant upload`, karena Git Bash mengubah argumen `/tmp/...` menjadi path Windows sebelum diteruskan ke `vagrant.exe`.
+- Jangan join lewat `vagrant provision`, karena `vagrant-provision.sh` memilih IP non-NAT pertama yang bisa saja IP bridged. Semua node wajib memakai IP tailnet.
+- Cek jalur antar-node dengan `tailscale ping node-a` di dalam VM. Hasil `via DERP` berarti lalu lintas lewat relay sehingga latensi naik.
+- Skenario Tester Agent yang menghambat jaringan antar-node perlu dicoba sekali di atas tailnet sebelum demo.
