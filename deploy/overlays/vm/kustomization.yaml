@@ -8,13 +8,12 @@ replicas:
   - name: aggregator
     count: 3
   - name: kafka
-    count: 1
+    count: 3
   - name: client-api
     count: 1
   - name: auth
     count: 1
 patches:
-  - path: kafka-config.yaml
   - target:
       kind: Deployment
     patch: |-
