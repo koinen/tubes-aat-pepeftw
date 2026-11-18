@@ -165,10 +165,12 @@ func (p *PostgresRepository) ParkedPage(ctx context.Context, source model.Source
 }
 
 // RecordStep applies one row's outcome and advances the job in one fenced transaction.
-func (p *PostgresRepository) RecordStep(ctx context.Context, jobID string, s repository.ReplayStep) error {
+// After an ambiguous commit the retried transaction finds the hazard already stored, so created can
+// be false for a hazard this call did store; an adaptation is then undercounted, never counted twice.
+func (p *PostgresRepository) RecordStep(ctx context.Context, jobID string, s repository.ReplayStep) (bool, error) {
 	counter, ok := replayCounters[s.Outcome]
 	if !ok {
-		return fmt.Errorf("record replay step %s: unknown outcome %q", s.Message.MessageID, s.Outcome)
+		return false, fmt.Errorf("record replay step %s: unknown outcome %q", s.Message.MessageID, s.Outcome)
 	}
 	m := s.Message
 	var (
@@ -179,23 +181,25 @@ func (p *PostgresRepository) RecordStep(ctx context.Context, jobID string, s rep
 	)
 	if s.Outcome == repository.ReplayRecovered || s.Outcome == repository.ReplayHandedToRetry {
 		if m.Hazard == nil {
-			return fmt.Errorf("record replay step %s: no hazard", m.MessageID)
+			return false, fmt.Errorf("record replay step %s: no hazard", m.MessageID)
 		}
 		var err error
 		if hazard, msg, payload, err = p.hazardMessage(*m.Hazard); err != nil {
-			return fmt.Errorf("record replay step %s: %w", m.MessageID, err)
+			return false, fmt.Errorf("record replay step %s: %w", m.MessageID, err)
 		}
 		if stored, err = json.Marshal(m.Hazard); err != nil {
-			return fmt.Errorf("record replay step %s: %w", m.MessageID, err)
+			return false, fmt.Errorf("record replay step %s: %w", m.MessageID, err)
 		}
 	}
 	ctx = correlation.With(ctx, m.CorrelationID)
+	var created bool
 	err := withIdempotentRetry(ctx, func() error {
+		created = false
 		return p.fencedTx(ctx, func(tx pgx.Tx) error {
 			var err error
 			switch s.Outcome {
 			case repository.ReplayRecovered:
-				if _, err = insertHazardWithOutbox(ctx, tx, hazard, msg, payload); err == nil {
+				if created, err = insertHazardWithOutbox(ctx, tx, hazard, msg, payload); err == nil {
 					_, err = tx.Exec(ctx, markReplayRecovered, m.MessageID)
 				}
 			case repository.ReplayStillParked:
@@ -210,7 +214,10 @@ func (p *PostgresRepository) RecordStep(ctx context.Context, jobID string, s rep
 			return err
 		})
 	})
-	return wrapReplayErr(ctx, "record replay step "+m.MessageID, err)
+	if err != nil {
+		return false, wrapReplayErr(ctx, "record replay step "+m.MessageID, err)
+	}
+	return created, nil
 }
 
 func scanReplayJob(row pgx.Row) (model.ReplayJob, error) {
