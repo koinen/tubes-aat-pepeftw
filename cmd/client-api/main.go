@@ -90,11 +90,10 @@ func main() {
 	// --- 6. Fiber Application Setup ---
 	verifier := auth.NewVerifier(jwks, cfg.Auth.JWTIssuer, cfg.Auth.JWTAudience, denylist)
 	limiter := ratelimit.New(redisClient, cfg.RateLimit)
-	capacity := concurrency.New(cfg.Concurrency.MaxRequests)
 	app := newApp(appDeps{
 		Agg:          aggClient,
 		FieldReports: reports,
-		Protect:      []any{capacity.Middleware, verifier.Middleware, limiter.Middleware},
+		Protect:      protectedMiddleware(cfg.Concurrency.MaxRequests, verifier.Middleware, limiter.Middleware),
 		Log:          logger,
 	})
 
@@ -102,6 +101,11 @@ func main() {
 	if err := app.Listen(":" + cfg.Server.Port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
+}
+
+func protectedMiddleware(maxRequests int, verify, rateLimit fiber.Handler) []any {
+	capacity := concurrency.New(maxRequests)
+	return []any{verify, capacity.Middleware, rateLimit}
 }
 
 func errorHandler(log *slog.Logger) fiber.ErrorHandler {

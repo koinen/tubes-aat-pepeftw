@@ -113,6 +113,9 @@ func LoadConfig() (*Config, error) {
 	concurrencyCfg := ConcurrencyConfig{
 		MaxRequests: shared.GetEnvInt("MAX_CONCURRENT_REQUESTS", 200),
 	}
+	if concurrencyCfg.MaxRequests < 2 {
+		return nil, fmt.Errorf("MAX_CONCURRENT_REQUESTS must be at least 2")
+	}
 
 	return &Config{
 		Server:      serverCfg,

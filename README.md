@@ -121,7 +121,7 @@ File `.env` **tidak** di-*commit*. Semua nilai contoh ada di `.env.example`. Unt
 | Adaptasi PVMBG | `PVMBG_ADAPTATIONS` | Aturan adaptasi yang dideklarasikan untuk versi skema PVMBG yang *breaking*, dipisah koma (`rename:<lama>=<baru>`, `numeric_string:<field>`, `optional:<field>`). Kosong berarti tidak ada. Aturan yang tidak valid membuat aggregator gagal start. |
 | Auth | `JWT_ISSUER`, `JWT_AUDIENCE`, `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`, `MEDIA_SECRET`, `LAPANGAN_SECRET`, `BNPB_SECRET`, `REDIS_PASSWORD` | *Secret* untuk tiga klien: `media`, `field-team`, `bnpb-ops`. |
 | Rate limit | `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_SECONDS` | Default 10 *request* per 60 detik per klien. |
-| Batas beban | `MAX_CONCURRENT_REQUESTS` | Batas *request* bersamaan di `client-api` (default 200). Kelebihannya dijawab `429` dengan `Retry-After`. |
+| Batas beban | `MAX_CONCURRENT_REQUESTS` | Batas *request* aktif per proses `client-api` (default 200, minimal 2). Seperempat slot (dibulatkan ke bawah, minimal 1) dikhususkan untuk Tim Lapangan dan BNPB Internal Ops. Keduanya boleh memakai slot Media yang kosong. Jika tidak ada slot yang bisa dipakai, API mengembalikan `503 overloaded` dengan `Retry-After: 2`. |
 | Mock BMKG | `BMKG_EVENT_INTERVAL`, `BMKG_SEED_COUNT` | Laju event baru (default 5 detik) dan jumlah data awal (default 25). |
 | Mock PVMBG | `PVMBG_REPORT_INTERVAL`, `PVMBG_SEED_COUNT`, `PVMBG_HANG_MAX` | Laju laporan baru, jumlah data awal, dan batas lama *hang* saat *outage*. |
 | Lainnya | `POLLER_ENABLED`, `LOG_LEVEL` | Menyalakan *poller* aggregator, dan level log mock (`DEBUG`/`INFO`/`WARN`/`ERROR`). |

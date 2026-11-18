@@ -90,7 +90,7 @@ components:
           $ref: '#/components/schemas/SourceStatusEntry'
     ErrorCode:
       type: string
-      enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, FORBIDDEN_FIELD, NOT_FOUND, RATE_LIMITED, UPSTREAM_UNAVAILABLE, INTERNAL]
+      enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, FORBIDDEN_FIELD, NOT_FOUND, RATE_LIMITED, UPSTREAM_UNAVAILABLE, INTERNAL, overloaded]
     ErrorResponse:
       type: object
       required: [error]
