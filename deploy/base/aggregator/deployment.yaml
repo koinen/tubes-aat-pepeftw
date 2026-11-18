@@ -66,6 +66,11 @@ spec:
                 secretKeyRef:
                   name: bnpb-secrets
                   key: PVMBG_TOKEN
+            - name: SATELLITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-secrets
+                  key: SATELLITE_TOKEN
             - name: AUDIT_TOKEN
               valueFrom:
                 secretKeyRef:

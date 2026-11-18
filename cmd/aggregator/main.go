@@ -105,17 +105,19 @@ func run(log *slog.Logger) error {
 	}
 	defer producer.Close()
 
-	relayDone := make(chan struct{})
-	go func() {
-		defer close(relayDone)
-		relay.New(repo, producer, log, cfg.RelayInterval, relayBatchSize).Run(ctx)
-	}()
-	defer func() {
-		stop()
-		<-relayDone
-	}()
+	relayOnLeader := pollerCfg.Enabled || satCfg.Enabled
+	if !relayOnLeader {
+		relayDone := make(chan struct{})
+		go func() {
+			defer close(relayDone)
+			relay.New(repo, producer, log, cfg.RelayInterval, relayBatchSize).Run(ctx)
+		}()
+		defer func() {
+			stop()
+			<-relayDone
+		}()
+	}
 
-	// Only PVMBG can be replayed (see docs: replayable sources).
 	replayRemappers := map[model.Source]unprocessed.Remapper{
 		model.SourcePVMBG: unprocessed.PVMBGRemapper(repo, pollerCfg.PVMBGAdaptations),
 	}
@@ -130,6 +132,11 @@ func run(log *slog.Logger) error {
 			defer close(leaderDone)
 			err := leader.Run(ctx, leaderCfg, log, func(leadCtx context.Context) {
 				var wg sync.WaitGroup
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					relay.New(repo, producer, log, cfg.RelayInterval, relayBatchSize).Run(leadCtx)
+				}()
 				if pollerCfg.Enabled {
 					wg.Add(1)
 					go func() {
