@@ -1,5 +1,6 @@
 // Package poison rejects a JSON body that must not be decoded at all. Every entry point runs it
-// before encoding/json: the aggregator's pollers and consumers, and client-api's field reports.
+// before encoding/json: the aggregator's pollers and consumers, client-api's field reports, and
+// the hazard-events consumers, which forward what they cannot read to topic unprocessed (Forwarder).
 package poison
 
 import (

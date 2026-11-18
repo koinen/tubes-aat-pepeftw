@@ -136,7 +136,7 @@ paths:
           in: query
           required: false
           schema:
-            $ref: './common.yaml#/components/schemas/Source'
+            $ref: './common.yaml#/components/schemas/UnprocessedSource'
         - name: since
           in: query
           required: false

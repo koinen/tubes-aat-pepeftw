@@ -9,6 +9,10 @@ components:
     Source:
       type: string
       enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI]
+    UnprocessedSource:
+      type: string
+      description: Asal pesan gagal. Selain empat sumber bahaya, TIM_LAPANGAN (topic field-reports) dan INTERNAL (consumer hazard-events kita sendiri, lewat topic unprocessed).
+      enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI, TIM_LAPANGAN, INTERNAL]
     HazardType:
       type: string
       enum: [SEISMIC, VOLCANIC, WILDFIRE, COASTAL]

@@ -12,10 +12,12 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
 )
 
-func parseAuditFilter(c fiber.Ctx) (repository.AuditFilter, error) {
+// parseAuditFilter reads the list filter; source is parsed by parseSource or, for the unprocessed
+// lists, parseUnprocessedSource.
+func parseAuditFilter(c fiber.Ctx, sourceOf func(string) (*model.Source, error)) (repository.AuditFilter, error) {
 	var f repository.AuditFilter
 
-	source, err := parseSource(c.Query("source"))
+	source, err := sourceOf(c.Query("source"))
 	if err != nil {
 		return f, err
 	}
@@ -54,4 +56,17 @@ func parseSource(v string) (*model.Source, error) {
 		return nil, errors.New("source harus BMKG, PVMBG, SATELIT atau SENSOR_PANTAI")
 	}
 	return &s, nil
+}
+
+// parseUnprocessedSource also accepts the sources that are not hazard sources: unprocessed messages
+// come from the field team (TIM_LAPANGAN) and from our own Kafka consumers (INTERNAL) too.
+func parseUnprocessedSource(v string) (*model.Source, error) {
+	if s := model.Source(v); s == model.SourceTimLapangan || s == model.SourceInternal {
+		return &s, nil
+	}
+	source, err := parseSource(v)
+	if err != nil {
+		return nil, errors.New("source harus BMKG, PVMBG, SATELIT, SENSOR_PANTAI, TIM_LAPANGAN atau INTERNAL")
+	}
+	return source, nil
 }

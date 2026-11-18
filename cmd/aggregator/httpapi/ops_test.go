@@ -140,3 +140,33 @@ func TestOpsAndAuditListsKeepTheirTokens(t *testing.T) {
 		}
 	}
 }
+
+// Unprocessed messages also come from the field team and from our own consumers; both lists filter
+// by those sources. Hazard events have only the four hazard sources.
+func TestUnprocessedListsFilterByEverySource(t *testing.T) {
+	for _, tt := range []struct{ target, token string }{
+		{"/internal/unprocessed", opsToken},
+		{"/internal/audit/unprocessed", auditToken},
+	} {
+		for _, source := range []model.Source{model.SourceTimLapangan, model.SourceInternal, model.SourceBMKG} {
+			audit := &fakeAudit{}
+			status, body := opsAppWithAudit(&fakeReplayJobs{}, audit)(unprocessedRequest(tt.target+"?source="+string(source), tt.token))
+			if status != http.StatusOK {
+				t.Errorf("%s?source=%s: got %d %v, want 200", tt.target, source, status, body)
+				continue
+			}
+			if audit.got == nil || audit.got.Source == nil || *audit.got.Source != source {
+				t.Errorf("%s?source=%s: filter %+v", tt.target, source, audit.got)
+			}
+		}
+	}
+
+	status, _ := opsAppWithAudit(&fakeReplayJobs{}, &fakeAudit{})(unprocessedRequest("/internal/unprocessed?source=GEMPA", opsToken))
+	if status != http.StatusBadRequest {
+		t.Errorf("source=GEMPA: got %d, want 400", status)
+	}
+	status, _ = opsAppWithAudit(&fakeReplayJobs{}, &fakeAudit{})(unprocessedRequest("/internal/audit/events?source=INTERNAL", auditToken))
+	if status != http.StatusBadRequest {
+		t.Errorf("audit events source=INTERNAL: got %d, want 400", status)
+	}
+}

@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
+
+	"tubes-aat-pepeftw/internal/poison"
 )
 
 type outcome string
@@ -12,7 +15,6 @@ const (
 	outcomeSent      outcome = "sent"
 	outcomeIgnored   outcome = "ignored"
 	outcomeDuplicate outcome = "duplicate"
-	outcomeInvalid   outcome = "invalid"
 )
 
 type notifier struct {
@@ -25,17 +27,23 @@ func newNotifier(seen *seenStore, log *slog.Logger) *notifier {
 	return &notifier{seen: seen, log: log, now: time.Now}
 }
 
-func (n *notifier) handle(value []byte, correlationID string) outcome {
+// decode reads a hazard-events value. A value it refuses goes to topic unprocessed, under the
+// reason code poison.Reason gives its error.
+func decode(value []byte) (hazardMessage, error) {
 	var msg hazardMessage
+	if err := poison.Check(value); err != nil {
+		return msg, err
+	}
 	if err := json.Unmarshal(value, &msg); err != nil {
-		n.log.Error("message_invalid", "correlation_id", correlationID, "error", err.Error())
-		return outcomeInvalid
+		return msg, err
 	}
 	if msg.HazardID == "" {
-		n.log.Error("message_invalid", "correlation_id", correlationID, "error", "missing hazard_id")
-		return outcomeInvalid
+		return msg, errors.New("missing hazard_id")
 	}
+	return msg, nil
+}
 
+func (n *notifier) handle(msg hazardMessage, correlationID string) outcome {
 	attrs := []any{
 		"correlation_id", correlationID, "hazard_id", msg.HazardID,
 		"event_id", msg.EventID, "severity", msg.Payload.Severity,

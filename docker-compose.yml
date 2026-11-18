@@ -149,6 +149,7 @@ services:
       DB_NAME: ${DB_NAME}
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_TOPIC_UNPROCESSED: ${KAFKA_TOPIC_UNPROCESSED:-unprocessed}
       KAFKA_TOPIC_FIELD_REPORTS: ${KAFKA_TOPIC_FIELD_REPORTS:-field-reports}
       POLLER_ENABLED: ${POLLER_ENABLED:-true}
       BMKG_URL: http://bmkg-mock:8080
@@ -180,6 +181,7 @@ services:
     environment:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_TOPIC_UNPROCESSED: ${KAFKA_TOPIC_UNPROCESSED:-unprocessed}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_DASHBOARD}
     ports:
       - "8083:8080"
@@ -192,6 +194,7 @@ services:
     environment:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_TOPIC_UNPROCESSED: ${KAFKA_TOPIC_UNPROCESSED:-unprocessed}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_NOTIFIER}
       DEDUP_DIR: /data
     volumes:
@@ -206,6 +209,7 @@ services:
     environment:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_TOPIC_UNPROCESSED: ${KAFKA_TOPIC_UNPROCESSED:-unprocessed}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_AUDIT}
       DEDUP_DIR: /data
     volumes:
@@ -306,6 +310,7 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic hazard-events --partitions 3 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic auth-revocations --partitions 1 --replication-factor 1 --config retention.ms=600000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic field-reports --partitions 3 --replication-factor 1 --config retention.ms=604800000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic unprocessed --partitions 3 --replication-factor 1 --config retention.ms=604800000 --config max.message.bytes=2097152
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --describe
     restart: "no"
 

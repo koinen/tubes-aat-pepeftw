@@ -23,6 +23,10 @@ const (
 // source: Source.Valid stays false for it.
 const SourceTimLapangan Source = "TIM_LAPANGAN"
 
+// SourceInternal marks unprocessed messages our own hazard-events consumers could not read (topic
+// unprocessed). It is not a hazard source: Source.Valid stays false for it.
+const SourceInternal Source = "INTERNAL"
+
 type UnprocessedStatus string
 
 const (

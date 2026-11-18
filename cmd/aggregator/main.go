@@ -15,6 +15,7 @@ import (
 
 	"tubes-aat-pepeftw/cmd/aggregator/config"
 	"tubes-aat-pepeftw/cmd/aggregator/fieldreport"
+	"tubes-aat-pepeftw/cmd/aggregator/forwarded"
 	"tubes-aat-pepeftw/cmd/aggregator/httpapi"
 	"tubes-aat-pepeftw/cmd/aggregator/kafka"
 	"tubes-aat-pepeftw/cmd/aggregator/leader"
@@ -117,7 +118,8 @@ func run(log *slog.Logger) error {
 	}()
 
 	// Every pod consumes field reports, outside leader election; the writes are unfenced and idempotent.
-	reports, err := fieldreport.NewConsumer(cfg.KafkaBrokers, cfg.FieldReportsTopic, fieldreport.NewHandler(repo, log), log)
+	reports, err := kafka.NewConsumer(cfg.KafkaBrokers, fieldreport.GroupID, cfg.FieldReportsTopic,
+		fieldreport.NewHandler(repo, log).HandleRecord, log)
 	if err != nil {
 		return err
 	}
@@ -129,6 +131,22 @@ func run(log *slog.Logger) error {
 	defer func() {
 		stop()
 		<-reportsDone
+	}()
+
+	// Every pod also parks what our hazard-events consumers forwarded to topic unprocessed.
+	forwards, err := kafka.NewConsumer(cfg.KafkaBrokers, forwarded.GroupID, cfg.UnprocessedTopic,
+		forwarded.NewHandler(repo, log).Handle, log)
+	if err != nil {
+		return err
+	}
+	forwardsDone := make(chan struct{})
+	go func() {
+		defer close(forwardsDone)
+		forwards.Run(ctx)
+	}()
+	defer func() {
+		stop()
+		<-forwardsDone
 	}()
 
 	// Only PVMBG can be replayed (see docs: replayable sources).
