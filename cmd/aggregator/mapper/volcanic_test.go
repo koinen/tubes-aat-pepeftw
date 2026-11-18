@@ -28,7 +28,7 @@ func TestVolcanicSchemaPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h, err := Volcanic(json.RawMessage(tt.payload), lookup, now)
+			h, err := Volcanic(json.RawMessage(tt.payload), lookup, VolcanicAdaptations{}, now)
 			if tt.accepted {
 				if err != nil {
 					t.Fatalf("want accepted, got %v", err)

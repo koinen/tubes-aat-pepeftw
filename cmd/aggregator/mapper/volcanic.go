@@ -15,8 +15,13 @@ type Volcano struct {
 
 type VolcanoLookup func(volcanoID string) (v Volcano, ok bool)
 
-func Volcanic(raw json.RawMessage, lookup VolcanoLookup, now time.Time) (model.HazardEvent, error) {
+// Volcanic maps one PVMBG report. rules are the declared adaptations; the zero value applies none.
+func Volcanic(raw json.RawMessage, lookup VolcanoLookup, rules VolcanicAdaptations, now time.Time) (model.HazardEvent, error) {
 	f, err := decode(raw)
+	if err != nil {
+		return model.HazardEvent{}, err
+	}
+	acted, err := rules.apply(f)
 	if err != nil {
 		return model.HazardEvent{}, err
 	}
@@ -50,13 +55,19 @@ func Volcanic(raw json.RawMessage, lookup VolcanoLookup, now time.Time) (model.H
 		return model.HazardEvent{}, err
 	}
 
-	if _, err := f.peekNumber("eruption_count_24h"); err != nil {
-		return model.HazardEvent{}, err
-	}
-	if _, err := f.peekNumber("ash_column_height_m"); err != nil {
-		return model.HazardEvent{}, err
+	for _, key := range []string{"eruption_count_24h", "ash_column_height_m"} {
+		if _, present := f.peek(key); !present {
+			if r, ok := rules.optional(key); ok {
+				acted = append(acted, r)
+				continue
+			}
+		}
+		if _, err := f.peekNumber(key); err != nil {
+			return model.HazardEvent{}, err
+		}
 	}
 
+	rules.notify(acted, ref)
 	return model.HazardEvent{
 		HazardID:    HazardID(model.SourcePVMBG, ref),
 		Source:      model.SourcePVMBG,
