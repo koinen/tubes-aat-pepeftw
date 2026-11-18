@@ -107,15 +107,18 @@ func run(log *slog.Logger) error {
 	}
 	defer producer.Close()
 
-	relayDone := make(chan struct{})
-	go func() {
-		defer close(relayDone)
-		relay.New(repo, producer, log, cfg.RelayInterval, relayBatchSize).Run(ctx)
-	}()
-	defer func() {
-		stop()
-		<-relayDone
-	}()
+	relayOnLeader := pollerCfg.Enabled || satCfg.Enabled
+	if !relayOnLeader {
+		relayDone := make(chan struct{})
+		go func() {
+			defer close(relayDone)
+			relay.New(repo, producer, log, cfg.RelayInterval, relayBatchSize).Run(ctx)
+		}()
+		defer func() {
+			stop()
+			<-relayDone
+		}()
+	}
 
 	// Every pod consumes field reports, outside leader election; the writes are unfenced and idempotent.
 	reports, err := kafka.NewConsumer(cfg.KafkaBrokers, fieldreport.GroupID, cfg.FieldReportsTopic,
@@ -164,6 +167,11 @@ func run(log *slog.Logger) error {
 			defer close(leaderDone)
 			err := leader.Run(ctx, leaderCfg, log, func(leadCtx context.Context) {
 				var wg sync.WaitGroup
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					relay.New(repo, producer, log, cfg.RelayInterval, relayBatchSize).Run(leadCtx)
+				}()
 				if pollerCfg.Enabled {
 					wg.Add(1)
 					go func() {

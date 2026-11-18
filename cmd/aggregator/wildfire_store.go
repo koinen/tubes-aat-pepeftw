@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/repository/postgres"
@@ -14,8 +15,8 @@ func (w wildfireStore) ActiveDetections(ctx context.Context) ([]satellite.Detect
 	return w.repo.ActiveDetections(ctx)
 }
 
-func (w wildfireStore) ListWildfires(ctx context.Context) ([]model.HazardEvent, error) {
-	return w.repo.ListWildfires(ctx)
+func (w wildfireStore) ListWildfires(ctx context.Context, since time.Time) ([]model.HazardEvent, error) {
+	return w.repo.ListWildfires(ctx, since)
 }
 
 func (w wildfireStore) SaveWildfire(ctx context.Context, h model.HazardEvent) (string, error) {
