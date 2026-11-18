@@ -7,24 +7,41 @@ import (
 )
 
 type Limiter struct {
-	slots chan struct{}
+	reserved chan struct{}
+	media    chan struct{}
 }
 
 func New(maxConcurrent int) *Limiter {
-	if maxConcurrent < 1 {
-		maxConcurrent = 1
+	reserved := max(1, maxConcurrent/4)
+	return &Limiter{
+		reserved: make(chan struct{}, reserved),
+		media:    make(chan struct{}, maxConcurrent-reserved),
 	}
-	return &Limiter{slots: make(chan struct{}, maxConcurrent)}
 }
 
 func (l *Limiter) Middleware(c fiber.Ctx) error {
-	select {
-	case l.slots <- struct{}{}:
-		defer func() { <-l.slots }()
+	switch common.GetSub(c) {
+	case "field-team", "bnpb-ops":
+		if take(l.reserved) {
+			defer func() { <-l.reserved }()
+			return c.Next()
+		}
+	}
+	if take(l.media) {
+		defer func() { <-l.media }()
 		return c.Next()
+	}
+
+	c.Set("Retry-After", "2")
+	return common.WriteError(c, fiber.StatusServiceUnavailable, common.CodeOverloaded,
+		"server is at capacity, retry shortly")
+}
+
+func take(slots chan struct{}) bool {
+	select {
+	case slots <- struct{}{}:
+		return true
 	default:
-		c.Set("Retry-After", "1")
-		return common.WriteError(c, fiber.StatusTooManyRequests, common.CodeRateLimited,
-			"server is at capacity, retry shortly")
+		return false
 	}
 }

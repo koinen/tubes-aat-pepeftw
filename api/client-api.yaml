@@ -11,6 +11,8 @@ info:
     hazard:replay:unprocessed untuk replay.
     Laporan lapangan (POST /field-reports) hanya untuk Tim Lapangan: scope field-report:write.
     Body request di semua route dibatasi 64 KiB; yang lebih besar menghasilkan 413.
+    Setelah JWT diverifikasi, request yang tidak memperoleh slot langsung mendapat 503
+    dengan kode overloaded dan Retry-After bernilai 2. Batas laju per subject tetap menghasilkan 429 RATE_LIMITED.
     Tidak pernah mengembalikan 500 pada skenario outage PVMBG dan tidak pernah menggantung.
 servers:
   - url: http://localhost:8080
@@ -65,7 +67,7 @@ paths:
         '429':
           $ref: './common.yaml#/components/responses/RateLimited'
         '503':
-          $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+          $ref: '#/components/responses/CapacityOrUpstreamUnavailable'
   /hazards/{hazard_id}:
     get:
       operationId: getHazard
@@ -98,7 +100,7 @@ paths:
         '429':
           $ref: './common.yaml#/components/responses/RateLimited'
         '503':
-          $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+          $ref: '#/components/responses/CapacityOrUpstreamUnavailable'
   /sources/status:
     get:
       operationId: getSourcesStatus
@@ -123,7 +125,7 @@ paths:
         '429':
           $ref: './common.yaml#/components/responses/RateLimited'
         '503':
-          $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+          $ref: '#/components/responses/CapacityOrUpstreamUnavailable'
   /unprocessed:
     get:
       operationId: listUnprocessed
@@ -283,6 +285,7 @@ paths:
           $ref: './common.yaml#/components/responses/RateLimited'
         '503':
           description: |
+            overloaded. Client API tidak memiliki slot untuk request ini (Retry-After bernilai 2).
             UPSTREAM_UNAVAILABLE. Kafka tidak mengonfirmasi laporan dalam 5 detik. Laporan mungkin tetap tertulis;
             kirim ulang dengan Idempotency-Key yang sama setelah Retry-After.
           headers:
@@ -427,8 +430,22 @@ components:
               code: FORBIDDEN
               message: 'scope hazard:read:unprocessed diperlukan'
               correlation_id: 7f3c9a2e-4b1d-4e8a-9c2f-1a2b3c4d5e6f
+    CapacityOrUpstreamUnavailable:
+      description: |
+        overloaded. Client API tidak memiliki slot untuk request ini (Retry-After bernilai 2).
+        UPSTREAM_UNAVAILABLE. Dependency tidak dapat dijangkau dan tidak ada data cadangan.
+      headers:
+        X-Correlation-ID:
+          $ref: './common.yaml#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: './common.yaml#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ErrorResponse'
     OpsUnavailable:
       description: |
+        overloaded. Client API tidak memiliki slot untuk request ini (Retry-After bernilai 2).
         UPSTREAM_UNAVAILABLE. Aggregator atau penyimpanannya tidak terjangkau (dengan Retry-After), atau akses ops
         belum dikonfigurasi / OPS_TOKEN ditolak aggregator (tanpa Retry-After, karena mencoba lagi tidak menolong).
       headers:

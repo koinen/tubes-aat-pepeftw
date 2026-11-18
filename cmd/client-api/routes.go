@@ -25,7 +25,7 @@ type appDeps struct {
 	Agg *aggregator.Client
 	// FieldReports writes accepted field reports to Kafka.
 	FieldReports fieldreport.Publisher
-	// Protect runs before every protected route, in order: concurrency cap, JWT verifier, rate limit.
+	// Protect runs before every protected route, in order: JWT verifier, admission, rate limit.
 	Protect []any
 	Log     *slog.Logger
 }
