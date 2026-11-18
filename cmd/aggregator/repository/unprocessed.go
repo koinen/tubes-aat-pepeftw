@@ -59,8 +59,9 @@ type ReplayQueue interface {
 	// after the position, in (received_at, message_id) order.
 	ParkedPage(ctx context.Context, source model.Source, cutoff time.Time, after model.ReplayPosition, limit int) ([]model.UnprocessedMessage, error)
 	// RecordStep applies a step to its row, adds it to the job's counters, and moves the job's
-	// position to the row, in one transaction.
-	RecordStep(ctx context.Context, jobID string, step ReplayStep) error
+	// position to the row, in one transaction. created is true only for a recovered step that stored
+	// a new hazard; a hazard that already existed (stored live by a later poll) leaves it false.
+	RecordStep(ctx context.Context, jobID string, step ReplayStep) (created bool, err error)
 	// FinishJob ends a job as done or failed (errText says why) and sets finished_at.
 	FinishJob(ctx context.Context, jobID string, status model.ReplayStatus, errText string) error
 }

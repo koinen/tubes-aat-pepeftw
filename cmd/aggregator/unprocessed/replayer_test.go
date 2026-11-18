@@ -13,6 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
+
 	"tubes-aat-pepeftw/cmd/aggregator/fence"
 	"tubes-aat-pepeftw/cmd/aggregator/mapper"
 	"tubes-aat-pepeftw/cmd/aggregator/model"
@@ -41,6 +44,8 @@ type fakeReplayQueue struct {
 	steps []repository.ReplayStep
 	pages []int // size of each page read
 	refs  []model.VolcanoRef
+	// hazards holds the source_ref_id of every stored hazard; a recovered step stores its hazard.
+	hazards map[string]bool
 
 	stepErr func(repository.ReplayStep) error
 	pageErr error
@@ -99,12 +104,13 @@ func (f *fakeReplayQueue) ParkedPage(_ context.Context, source model.Source, cut
 	return out, nil
 }
 
-func (f *fakeReplayQueue) RecordStep(_ context.Context, id string, s repository.ReplayStep) error {
+func (f *fakeReplayQueue) RecordStep(_ context.Context, id string, s repository.ReplayStep) (bool, error) {
 	if f.stepErr != nil {
 		if err := f.stepErr(s); err != nil {
-			return err
+			return false, err
 		}
 	}
+	created := false
 	f.steps = append(f.steps, s)
 	row := f.row(s.Message.MessageID)
 	j := f.job(id)
@@ -113,6 +119,11 @@ func (f *fakeReplayQueue) RecordStep(_ context.Context, id string, s repository.
 	case repository.ReplayRecovered:
 		row.Status = model.StatusRecovered
 		j.Recovered++
+		if f.hazards == nil {
+			f.hazards = map[string]bool{}
+		}
+		created = !f.hazards[s.Message.Hazard.SourceRefID]
+		f.hazards[s.Message.Hazard.SourceRefID] = true
 	case repository.ReplayStillParked:
 		row.Attempts++
 		row.Code, row.Reason = s.Message.Code, s.Message.Reason
@@ -126,7 +137,7 @@ func (f *fakeReplayQueue) RecordStep(_ context.Context, id string, s repository.
 		j.NotReplayable++
 	}
 	j.Position = model.ReplayPosition{ReceivedAt: s.Message.ReceivedAt, MessageID: s.Message.MessageID}
-	return nil
+	return created, nil
 }
 
 func (f *fakeReplayQueue) row(id string) *model.UnprocessedMessage {
@@ -204,6 +215,51 @@ func TestReplayRecoversARowTheDeclaredRuleNowMaps(t *testing.T) {
 	if countLogLines(t, logs.String(), want) != 1 {
 		t.Errorf("want one log line with %v in\n%s", want, logs.String())
 	}
+}
+
+// A report parked as v3 can also be stored live by a later poll that already had the rule (the
+// overlap fetches it again); that poll counted its adaptation. Replaying the parked row recovers the
+// message without a new hazard, so the adaptation is not counted a second time.
+func TestReplayOfAReportWhoseHazardExistsCountsTheRecoveryButNoAdaptation(t *testing.T) {
+	q := &fakeReplayQueue{
+		rows:    []model.UnprocessedMessage{parked("m1", renamedV3, jobCreated.Add(-time.Hour))},
+		jobs:    []model.ReplayJob{queuedJob(renameRule)},
+		refs:    []model.VolcanoRef{merapi},
+		hazards: map[string]bool{"r3": true},
+	}
+	recoveredBefore := counterValue(t, recovered.WithLabelValues("PVMBG"))
+	adaptedBefore := counterValue(t, adaptationApplied.WithLabelValues("PVMBG", renameRule))
+	var logs bytes.Buffer
+	if err := newTestReplayer(t, q, renameRule, &logs).RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	j := q.jobs[0]
+	if j.Status != model.ReplayDone || j.Recovered != 1 || q.row("m1").Status != model.StatusRecovered {
+		t.Errorf("job %s recovered %d, row %s; want done 1 recovered", j.Status, j.Recovered, q.row("m1").Status)
+	}
+	if got := counterValue(t, recovered.WithLabelValues("PVMBG")) - recoveredBefore; got != 1 {
+		t.Errorf("bnpb_unprocessed_recovered_total +%v, want +1", got)
+	}
+	if got := counterValue(t, adaptationApplied.WithLabelValues("PVMBG", renameRule)) - adaptedBefore; got != 0 {
+		t.Errorf("bnpb_adaptation_applied_total +%v, want +0", got)
+	}
+	if n := countLogLines(t, logs.String(), map[string]any{"msg": "adaptation_applied"}); n != 0 {
+		t.Errorf("%d adaptation_applied log lines, want 0 in\n%s", n, logs.String())
+	}
+	want := map[string]any{"msg": "message_recovered", "message_id": "m1", "hazard_created": false}
+	if countLogLines(t, logs.String(), want) != 1 {
+		t.Errorf("want one log line with %v in\n%s", want, logs.String())
+	}
+}
+
+func counterValue(t *testing.T, c prometheus.Counter) float64 {
+	t.Helper()
+	var m dto.Metric
+	if err := c.Write(&m); err != nil {
+		t.Fatalf("read counter: %v", err)
+	}
+	return m.GetCounter().GetValue()
 }
 
 func countLogLines(t *testing.T, logs string, want map[string]any) int {
@@ -391,7 +447,8 @@ func TestStoreFailureOnRecover(t *testing.T) {
 }
 
 // A leader that loses its epoch mid-job stops and leaves the job running. The next leader resumes
-// after the last row the job finished, so no row is replayed twice and the counters add up.
+// after the last row the job finished, so no row is replayed twice and the counters add up, and it
+// logs that it resumed and from where.
 func TestNextLeaderResumesAJobWhereItStopped(t *testing.T) {
 	q := &fakeReplayQueue{
 		rows: []model.UnprocessedMessage{
@@ -419,8 +476,13 @@ func TestNextLeaderResumesAJobWhereItStopped(t *testing.T) {
 	}
 
 	q.stepErr = nil
-	if err := newTestReplayer(t, q, renameRule, io.Discard).RunOnce(context.Background()); err != nil {
+	var logs bytes.Buffer
+	if err := newTestReplayer(t, q, renameRule, &logs).RunOnce(context.Background()); err != nil {
 		t.Fatalf("next leader RunOnce: %v", err)
+	}
+	resumed := map[string]any{"msg": "replay_resumed", "job_id": jobID, "source": "PVMBG", "last_message_id": "m2"}
+	if countLogLines(t, logs.String(), resumed) != 1 || countLogLines(t, logs.String(), map[string]any{"msg": "replay_started"}) != 0 {
+		t.Errorf("want one line with %v and no replay_started in\n%s", resumed, logs.String())
 	}
 	var ids []string
 	for _, s := range q.steps {
@@ -436,7 +498,8 @@ func TestNextLeaderResumesAJobWhereItStopped(t *testing.T) {
 }
 
 // During a rollout, a job accepted by a pod with the new rules waits on a leader that still has
-// the old ones, whether it is queued or was already running under a previous leader.
+// the old ones, whether it is queued or was already running under a previous leader. The leader
+// says so once, not on every tick it waits.
 func TestJobWaitsForTheRulesItWasAcceptedWith(t *testing.T) {
 	for _, status := range []model.ReplayStatus{model.ReplayQueued, model.ReplayRunning} {
 		t.Run(string(status), func(t *testing.T) {
@@ -448,8 +511,11 @@ func TestJobWaitsForTheRulesItWasAcceptedWith(t *testing.T) {
 				refs: []model.VolcanoRef{merapi},
 			}
 			var logs bytes.Buffer
-			if err := newTestReplayer(t, q, "", &logs).RunOnce(context.Background()); err != nil {
-				t.Fatalf("RunOnce: %v", err)
+			r := newTestReplayer(t, q, "", &logs)
+			for range 3 {
+				if err := r.RunOnce(context.Background()); err != nil {
+					t.Fatalf("RunOnce: %v", err)
+				}
 			}
 			if len(q.steps) != 0 || q.jobs[0].Status != status || q.row("m1").Status != model.StatusParked {
 				t.Errorf("job ran on a leader without its rules: %d steps, job %s", len(q.steps), q.jobs[0].Status)

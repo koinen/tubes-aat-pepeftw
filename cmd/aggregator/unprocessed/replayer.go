@@ -66,6 +66,9 @@ type Replayer struct {
 	remappers map[model.Source]Remapper
 	log       *slog.Logger
 	now       func() time.Time
+
+	// waiting is the job last logged as waiting for config, so a wait is logged once, not every tick.
+	waiting string
 }
 
 func NewReplayer(q repository.ReplayQueue, remappers map[model.Source]Remapper, log *slog.Logger, now func() time.Time) *Replayer {
@@ -137,8 +140,11 @@ func (r *Replayer) run(ctx context.Context, job model.ReplayJob) error {
 		return fmt.Errorf("source %s tidak mendukung replay", job.Source)
 	}
 	if job.Adaptations != rm.Rules {
-		r.log.Info("replay_waiting_for_config", "correlation_id", job.JobID, "job_id", job.JobID,
-			"source", string(job.Source), "job_adaptations", job.Adaptations, "pod_adaptations", rm.Rules)
+		if r.waiting != job.JobID {
+			r.waiting = job.JobID
+			r.log.Info("replay_waiting_for_config", "correlation_id", job.JobID, "job_id", job.JobID,
+				"source", string(job.Source), "job_adaptations", job.Adaptations, "pod_adaptations", rm.Rules)
+		}
 		return nil
 	}
 	if job.Status == model.ReplayQueued {
@@ -146,6 +152,10 @@ func (r *Replayer) run(ctx context.Context, job model.ReplayJob) error {
 			return err
 		}
 		r.log.Info("replay_started", "correlation_id", job.JobID, "job_id", job.JobID, "source", string(job.Source))
+	} else {
+		// A new leader, a rollout that ended a wait, or the tick after replay_paused.
+		r.log.Info("replay_resumed", "correlation_id", job.JobID, "job_id", job.JobID, "source", string(job.Source),
+			"last_message_id", job.Position.MessageID)
 	}
 	remap, err := rm.Load(ctx)
 	if err != nil {
@@ -176,7 +186,7 @@ func (r *Replayer) run(ctx context.Context, job model.ReplayJob) error {
 
 func (r *Replayer) replay(ctx context.Context, job model.ReplayJob, remap Remap, m model.UnprocessedMessage) error {
 	if m.PayloadSize > int64(len(m.Payload)) {
-		return r.q.RecordStep(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayNotReplayable})
+		return r.record(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayNotReplayable})
 	}
 	now := r.now().UTC()
 	h, needed, err := remap(m.Payload, now)
@@ -185,10 +195,10 @@ func (r *Replayer) replay(ctx context.Context, job model.ReplayJob, remap Remap,
 		m.Code, m.Reason = failed.Code, failed.Reason
 		r.log.Warn("message_still_parked", "correlation_id", job.JobID, "job_id", job.JobID, "message_id", m.MessageID,
 			"source", string(m.Source), "reason", m.Reason)
-		return r.q.RecordStep(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayStillParked})
+		return r.record(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayStillParked})
 	}
 	m.Hazard, m.CorrelationID = &h, job.JobID
-	err = r.q.RecordStep(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayRecovered})
+	created, err := r.q.RecordStep(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayRecovered})
 	switch {
 	case err == nil:
 	case mustStop(ctx, err):
@@ -198,22 +208,31 @@ func (r *Replayer) replay(ctx context.Context, job model.ReplayJob, remap Remap,
 		m.Reason = storable(string(model.ReasonStoreUnavailable)+": "+err.Error(), 0)
 		r.log.Warn("message_handed_to_retry", "correlation_id", job.JobID, "job_id", job.JobID, "message_id", m.MessageID,
 			"source", string(m.Source), "error", err.Error())
-		return r.q.RecordStep(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayHandedToRetry})
+		return r.record(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayHandedToRetry})
 	case errors.Is(err, repository.ErrRejected):
 		m.Code = model.ReasonStoreRejected
 		m.Reason = storable(string(model.ReasonStoreRejected)+": "+err.Error(), 0)
 		r.log.Warn("message_still_parked", "correlation_id", job.JobID, "job_id", job.JobID, "message_id", m.MessageID,
 			"source", string(m.Source), "reason", m.Reason)
-		return r.q.RecordStep(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayStillParked})
+		return r.record(ctx, job.JobID, repository.ReplayStep{Message: m, Outcome: repository.ReplayStillParked})
 	default:
 		return err
 	}
 	Recovered(m.Source)
-	adapted := AdaptationObserver(r.log, m.Source, job.JobID)
-	for _, rule := range needed {
-		adapted(rule, h.SourceRefID)
+	// Like the poller, only the store that created the hazard counts its adaptations.
+	if created {
+		adapted := AdaptationObserver(r.log, m.Source, job.JobID)
+		for _, rule := range needed {
+			adapted(rule, h.SourceRefID)
+		}
 	}
 	r.log.Info("message_recovered", "correlation_id", job.JobID, "job_id", job.JobID, "message_id", m.MessageID,
-		"source", string(m.Source), "source_ref_id", h.SourceRefID)
+		"source", string(m.Source), "source_ref_id", h.SourceRefID, "hazard_created", created)
 	return nil
+}
+
+// record applies a step that cannot create a hazard.
+func (r *Replayer) record(ctx context.Context, jobID string, s repository.ReplayStep) error {
+	_, err := r.q.RecordStep(ctx, jobID, s)
+	return err
 }
