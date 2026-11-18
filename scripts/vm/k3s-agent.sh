@@ -11,12 +11,19 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+NODE_IFACE="$(ip -4 -o addr show | awk -v ip="$NODE_IP" '{split($4, a, "/"); if (a[1] == ip) print $2}')"
+if [ -z "$NODE_IFACE" ]; then
+  echo "no interface holds ${NODE_IP}, pass the node ip as an argument" >&2
+  exit 1
+fi
+
 swapoff -a
 sed -i '/\sswap\s/s/^/#/' /etc/fstab
 command -v curl > /dev/null || apt-get install -y curl
 
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" K3S_URL="https://${SERVER_IP}:6443" K3S_TOKEN="$TOKEN" sh -s - agent \
-  --node-ip "$NODE_IP"
+  --node-ip "$NODE_IP" \
+  --flannel-iface "$NODE_IFACE"
 
 systemctl is-active k3s-agent
 echo "joined ${SERVER_IP} as $(hostname) with ip ${NODE_IP}, check with kubectl get nodes on the laptop"
