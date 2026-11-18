@@ -393,11 +393,13 @@ Setiap node menjalankan satu pod CockroachDB. Skenario mematikan node hanya dike
 |---|---|
 | `deploy/base` | Topologi asli untuk cluster demo (CockroachDB 4, Kafka 3, aggregator 3) |
 | `deploy/overlays/vm` | Cluster VM k3s (CockroachDB 4, aggregator 3, Kafka 1, image dari GHCR) |
+| `deploy/overlays/vm-exam` | Overlay `vm` dengan Sensor Pantai pada profil ujian (butuh `secrets/pantai.key` dari asisten) |
+| `deploy/base/sensor-pantai` | `manifest.yaml` asisten (salinan apa adanya), Service, dan patch namespace, resources, label stage |
 | `deploy/overlays/dev` | Replika lebih sedikit untuk kind di laptop (CockroachDB 4, Kafka 1, aplikasi 1) |
 | `deploy/kind/cluster.yaml` | Konfigurasi cluster kind dan port host 8080 sampai 8085 |
 | `cmd/aggregator/migrations` | Skema SQL, dijalankan oleh Job `aggregator-migrate` (`./aggregator migrate`) |
 
-Setiap pod memiliki label `role` (aggregator, store, broker, consumer, api, mock, sensor, other) serta `resources.requests` dan `resources.limits` sesuai Lampiran B. Kredensial berada di Secret `bnpb-secrets` dan `auth-keys`, konfigurasi di ConfigMap. NetworkPolicy memastikan CockroachDB hanya dapat dijangkau aggregator, `auth-store` hanya oleh auth, dan `client-api-store` hanya oleh client-api.
+Setiap pod memiliki label `role` (aggregator, store, broker, consumer, api, mock, sensor, other) serta `resources.requests` dan `resources.limits` sesuai Lampiran B. Kredensial berada di Secret `bnpb-secrets` dan `auth-keys`, token Sensor Pantai di Secret `pantai-token` (`PANTAI_AUTH_TOKEN` di `.env`), konfigurasi di ConfigMap. NetworkPolicy memastikan CockroachDB hanya dapat dijangkau aggregator, `auth-store` hanya oleh auth, `client-api-store` hanya oleh client-api, dan Sensor Pantai hanya oleh aggregator.
 
 ### Anggaran memori (requests)
 

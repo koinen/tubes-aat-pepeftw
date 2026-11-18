@@ -20,6 +20,9 @@ resources:
   - networkpolicy/crdb.yaml
   - networkpolicy/auth-store.yaml
   - networkpolicy/client-api-store.yaml
+  - networkpolicy/sensor-pantai.yaml
+  - sensor-pantai/manifest.yaml
+  - sensor-pantai/service.yaml
   - aggregator/rbac.yaml
   - aggregator/configmap.yaml
   - aggregator/job-migrate.yaml
@@ -66,6 +69,7 @@ configMapGenerator:
         app: grafana
         bnpb.io/stage: infra
 patches:
+  - path: sensor-pantai/patch.yaml
   - target:
       kind: Deployment
       labelSelector: bnpb.io/stage=apps
