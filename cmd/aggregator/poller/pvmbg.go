@@ -16,7 +16,7 @@ import (
 type pvmbgPoller struct {
 	f         *fetcher
 	hazards   repository.HazardWriter
-	rejected  repository.RejectedRepository
+	dlq       repository.UnprocessedWriter
 	cursors   repository.CursorRepository
 	volcanoes repository.VolcanoRefRepository
 	overlap   time.Duration
@@ -28,7 +28,7 @@ type pvmbgPoller struct {
 
 func newPVMBGPoller(f *fetcher, d Deps, cfg Config) *pvmbgPoller {
 	return &pvmbgPoller{
-		f: f, hazards: d.Hazards, rejected: d.Rejected, cursors: d.Cursors, volcanoes: d.Volcanoes,
+		f: f, hazards: d.Hazards, dlq: d.Unprocessed, cursors: d.Cursors, volcanoes: d.Volcanoes,
 		overlap: cfg.CursorOverlap, log: d.Log, now: d.Now,
 	}
 }
@@ -72,15 +72,13 @@ func (p *pvmbgPoller) cycle(ctx context.Context) error {
 		since = &s
 	}
 
+	rec := newRecorder(p.dlq, p.log, model.SourcePVMBG, now)
 	body, err := p.f.get(ctx, "/volcanic-reports", since)
-	if err != nil {
-		return err
-	}
 	var resp struct {
 		Reports []json.RawMessage `json:"reports"`
 	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("volcanic-reports: respons bukan object {reports: [...]}: %w", err)
+	if err := rec.decode(ctx, mapper.EndpointVolcanicReports, body, err, &resp); err != nil {
+		return err
 	}
 
 	newCursor := cursor
@@ -95,12 +93,15 @@ func (p *pvmbgPoller) cycle(ctx context.Context) error {
 
 		h, err := mapper.Volcanic(raw, p.lookup, now)
 		if err != nil {
-			saveRejected(ctx, p.rejected, p.log, model.SourcePVMBG, mapper.EndpointVolcanicReports, raw, err, now)
+			rec.park(ctx, mapper.EndpointVolcanicReports, raw, err)
 			continue
 		}
 		outcome, err := p.hazards.SaveHazard(ctx, h)
 		if err != nil {
-			return err
+			if err := rec.storeFailed(ctx, mapper.EndpointVolcanicReports, raw, h, err); err != nil {
+				return err
+			}
+			continue
 		}
 		if outcome == repository.OutcomeCreated {
 			_, hasConfidence := h.Attributes["confidence_level"]
@@ -109,6 +110,9 @@ func (p *pvmbgPoller) cycle(ctx context.Context) error {
 		}
 	}
 
+	if rec.err != nil {
+		return rec.err
+	}
 	if !newCursor.IsZero() && (!found || !newCursor.Equal(cursor)) {
 		if err := p.cursors.SetCursor(ctx, model.SourcePVMBG, mapper.EndpointVolcanicReports, newCursor); err != nil {
 			return err

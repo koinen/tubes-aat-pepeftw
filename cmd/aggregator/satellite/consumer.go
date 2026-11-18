@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"tubes-aat-pepeftw/cmd/aggregator/fence"
+	"tubes-aat-pepeftw/cmd/aggregator/model"
+	"tubes-aat-pepeftw/cmd/aggregator/unprocessed"
 )
 
 const maxBackoff = 15 * time.Second
@@ -29,11 +31,13 @@ type BatchStats struct {
 
 type Deps struct {
 	LastOffset func(ctx context.Context) (int64, error)
-	Apply      func(ctx context.Context, events []Event, lateness time.Duration, receivedAt time.Time) (BatchStats, error)
-	Log        *slog.Logger
-	Client     *http.Client
-	Now        func() time.Time
-	Backoff    time.Duration
+	// Park stores an event that cannot be decoded as an unprocessed message (inserted=false if already stored).
+	Park    func(ctx context.Context, m model.UnprocessedMessage) (inserted bool, err error)
+	Apply   func(ctx context.Context, events []Event, lateness time.Duration, receivedAt time.Time) (BatchStats, error)
+	Log     *slog.Logger
+	Client  *http.Client
+	Now     func() time.Time
+	Backoff time.Duration
 }
 
 type Consumer struct {
@@ -123,10 +127,11 @@ func (c *Consumer) session(ctx context.Context) (progressed bool, err error) {
 		defer close(events)
 		sampled := 0
 		readErr <- ReadSSE(body, func(raw RawEvent) error {
-			ev, err := Decode(raw.Type, raw.Data)
+			ev, err := decodeChecked(raw)
 			if err != nil {
-				c.d.Log.Error("satellite_bad_event", "id", raw.ID, "type", raw.Type, "error", err.Error())
-				return nil
+				if ev, err = c.park(sctx, raw, err); err != nil || ev.Offset < 0 {
+					return err
+				}
 			}
 			if ev.Kind == KindHeartbeat {
 				if ev.Offset < 0 {
@@ -225,4 +230,33 @@ func (i *idleReader) Read(p []byte) (int, error) {
 		i.timer.Reset(i.d)
 	}
 	return n, err
+}
+
+func decodeChecked(raw RawEvent) (Event, error) {
+	if err := unprocessed.Check(raw.Data); err != nil {
+		return Event{}, err
+	}
+	return Decode(raw.Type, raw.Data)
+}
+
+// park stores an undecodable event and returns a KindParked placeholder that keeps its offset,
+// so the stored offset moves past it without counting a gap. If the SSE id is not a number the
+// placeholder has offset -1 and is not sent; the event is still in the DLQ. If the event cannot be stored,
+// the error ends the session and the next one resumes from the last applied offset.
+func (c *Consumer) park(ctx context.Context, raw RawEvent, cause error) (Event, error) {
+	m := unprocessed.Build(model.SourceSatelit, strings.TrimSpace(raw.Type), raw.Data, cause, c.d.Now())
+	inserted, err := c.d.Park(ctx, m)
+	if err != nil {
+		return Event{}, fmt.Errorf("park event %s: %w", raw.ID, err)
+	}
+	if inserted {
+		unprocessed.Written(m)
+		c.d.Log.Warn("message_unprocessed", "source", string(m.Source), "endpoint", m.Endpoint, "id", raw.ID,
+			"message_id", m.MessageID, "status", string(m.Status), "reason", m.Reason)
+	}
+	offset, perr := strconv.ParseInt(raw.ID, 10, 64)
+	if perr != nil {
+		offset = -1
+	}
+	return Event{Offset: offset, Kind: KindParked}, nil
 }

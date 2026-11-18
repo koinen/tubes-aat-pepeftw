@@ -14,6 +14,8 @@ const (
 	KindUpdate    Kind = "update"
 	KindRetract   Kind = "retract"
 	KindHeartbeat Kind = "heartbeat"
+	// KindParked holds the offset of an event that went to the DLQ. It carries no data.
+	KindParked Kind = "parked"
 )
 
 type Detection struct {
@@ -24,7 +26,7 @@ type Detection struct {
 	Longitude  float64
 	Confidence string
 	FRP        float64
-	ReceivedAt time.Time 
+	ReceivedAt time.Time
 }
 
 type Changes struct {

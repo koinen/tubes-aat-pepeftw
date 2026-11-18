@@ -36,6 +36,30 @@ const getHazard = selectHazardColumns + `
 WHERE hazard_id = $1`
 
 func (p *PostgresRepository) SaveHazard(ctx context.Context, h model.HazardEvent) (repository.SaveOutcome, error) {
+	h, msg, payload, err := p.hazardMessage(h)
+	if err != nil {
+		return "", fmt.Errorf("save hazard %s: %w", h.HazardID, err)
+	}
+
+	var outcome repository.SaveOutcome
+	err = withIdempotentRetry(ctx, func() error {
+		outcome = repository.OutcomeUnchanged
+		return p.fencedTx(ctx, func(tx pgx.Tx) error {
+			created, err := insertHazardWithOutbox(ctx, tx, h, msg, payload)
+			if created {
+				outcome = repository.OutcomeCreated
+			}
+			return err
+		})
+	})
+	if err != nil {
+		return "", fmt.Errorf("save hazard %s: %w", h.HazardID, storeError(ctx, err))
+	}
+	return outcome, nil
+}
+
+// hazardMessage normalizes h and builds its HAZARD_CREATED outbox event.
+func (p *PostgresRepository) hazardMessage(h model.HazardEvent) (model.HazardEvent, model.HazardMessage, []byte, error) {
 	h = normalize(h)
 	msg := model.HazardMessage{
 		EventID:   uuid.NewString(),
@@ -45,36 +69,22 @@ func (p *PostgresRepository) SaveHazard(ctx context.Context, h model.HazardEvent
 		Payload:   h,
 	}
 	payload, err := json.Marshal(msg)
-	if err != nil {
-		return "", fmt.Errorf("save hazard %s: %w", h.HazardID, err)
-	}
+	return h, msg, payload, err
+}
 
-	var outcome repository.SaveOutcome
-	err = withIdempotentRetry(ctx, func() error {
-		outcome = repository.OutcomeUnchanged
-		return p.fencedTx(ctx, func(tx pgx.Tx) error {
-			tag, err := tx.Exec(ctx, insertHazard,
-				h.HazardID, h.Source, h.SourceRefID, h.HazardType, h.Severity, h.AreaName,
-				h.Latitude, h.Longitude, h.OccurredAt, h.IngestedAt, h.Attributes)
-			if err != nil {
-				return err
-			}
-			if tag.RowsAffected() == 0 {
-				return nil
-			}
-
-			if _, err := tx.Exec(ctx, insertOutbox,
-				msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx)), nullable(telemetry.TraceParent(ctx))); err != nil {
-				return err
-			}
-			outcome = repository.OutcomeCreated
-			return nil
-		})
-	})
-	if err != nil {
-		return "", fmt.Errorf("save hazard %s: %w", h.HazardID, err)
+// insertHazardWithOutbox inserts h and, only if it is new, its outbox event. created reports which.
+func insertHazardWithOutbox(ctx context.Context, tx pgx.Tx, h model.HazardEvent, msg model.HazardMessage, payload []byte) (bool, error) {
+	tag, err := tx.Exec(ctx, insertHazard,
+		h.HazardID, h.Source, h.SourceRefID, h.HazardType, h.Severity, h.AreaName,
+		h.Latitude, h.Longitude, h.OccurredAt, h.IngestedAt, h.Attributes)
+	if err != nil || tag.RowsAffected() == 0 {
+		return false, err
 	}
-	return outcome, nil
+	if _, err := tx.Exec(ctx, insertOutbox,
+		msg.EventID, h.HazardID, msg.EventType, payload, nullable(correlation.From(ctx)), nullable(telemetry.TraceParent(ctx))); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (p *PostgresRepository) GetHazard(ctx context.Context, hazardID string) (model.HazardEvent, error) {

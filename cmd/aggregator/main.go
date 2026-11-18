@@ -22,6 +22,7 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/relay"
 	"tubes-aat-pepeftw/cmd/aggregator/repository/postgres"
 	"tubes-aat-pepeftw/cmd/aggregator/satellite"
+	"tubes-aat-pepeftw/cmd/aggregator/unprocessed"
 
 	"tubes-aat-pepeftw/internal/telemetry"
 )
@@ -124,13 +125,18 @@ func run(log *slog.Logger) error {
 					go func() {
 						defer wg.Done()
 						poller.New(pollerCfg, poller.Deps{
-							Hazards:   repo,
-							Rejected:  repo,
-							Cursors:   repo,
-							Statuses:  repo,
-							Volcanoes: repo,
-							Log:       log,
+							Hazards:     repo,
+							Unprocessed: repo,
+							Cursors:     repo,
+							Statuses:    repo,
+							Volcanoes:   repo,
+							Log:         log,
 						}).Run(leadCtx)
+					}()
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						unprocessed.NewWorker(repo, log).Run(leadCtx)
 					}()
 				}
 				if satCfg.Enabled {
@@ -138,6 +144,7 @@ func run(log *slog.Logger) error {
 					go func() {
 						defer wg.Done()
 						satellite.New(satCfg, satellite.Deps{
+							Park: repo.SaveUnprocessed,
 							LastOffset: func(c context.Context) (int64, error) {
 								s, err := repo.SatelliteState(c)
 								return s.LastOffset, err
