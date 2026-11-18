@@ -140,7 +140,7 @@ Salin hasilnya ke `PVMBG_TOKEN` di `.env`, lalu jalankan ulang `docker compose u
 |---|---|---|
 | `client-api` | 8080 | `GET /hazards`, `GET /hazards/:id`, `GET /sources/status`, `GET /unprocessed`, `POST /unprocessed/replay`, `GET /unprocessed/replay/:job_id`, `GET /health` |
 | `bmkg-mock` | 8081 | `GET /seismic-events`, `GET /tsunami-warnings`, `GET /health` |
-| `pvmbg-mock` | 8082 | `GET /volcanic-reports`, `POST /admin/outage`, `/admin/schema-version`, `GET /health` |
+| `pvmbg-mock` | 8082 | `GET /volcanic-reports`, `POST /admin/outage`, `/admin/schema-version`, `/admin/corrupt`, `GET /health` |
 | `dashboard-updater` | 8083 | `GET /` (halaman dashboard), `GET /events` (SSE), `GET /api/hazards`, `GET /health` |
 | `auth` | 8084 | `POST /token`, `GET /.well-known/jwks.json`, `GET /health` |
 | `aggregator` (API internal) | 8085 | `GET /internal/hazards`, `GET /internal/sources/status`, `GET /health` |

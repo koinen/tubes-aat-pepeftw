@@ -151,10 +151,20 @@ func newApp(ctx context.Context, cfg Config, store *Store, state *State, log *sl
 			if err != nil {
 				return sendError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 			}
-			return c.JSON(fiber.Map{
+			resp := fiber.Map{
 				"reports":      store.Since(since),
 				"generated_at": time.Now().UTC().Truncate(time.Second).Format(time.RFC3339),
-			})
+			}
+			kind, remaining, corrupt := state.TakeCorrupt()
+			if !corrupt {
+				return c.JSON(resp)
+			}
+			real, err := json.Marshal(resp)
+			if err != nil {
+				return err
+			}
+			log.Info("corrupt_response_served", "correlation_id", correlationID(c), "kind", kind, "remaining", remaining)
+			return sendCorrupt(c, kind, real)
 		})
 
 	admin := adminMiddleware(cfg.AdminKey)
@@ -186,6 +196,15 @@ func newApp(ctx context.Context, cfg Config, store *Store, state *State, log *sl
 		}
 		state.SetOutage(*body.Enabled, body.Mode)
 		log.Info("outage_changed", "correlation_id", correlationID(c), "enabled", *body.Enabled, "mode", body.Mode)
+		return c.JSON(state.Snapshot())
+	})
+	app.Post("/admin/corrupt", admin, func(c fiber.Ctx) error {
+		kind, count, ok := parseCorruptRequest(c.Body())
+		if !ok {
+			return sendError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", corruptHelp)
+		}
+		state.SetCorrupt(kind, count)
+		log.Info("corrupt_changed", "correlation_id", correlationID(c), "kind", kind, "count", count)
 		return c.JSON(state.Snapshot())
 	})
 	app.Get("/admin/state", admin, func(c fiber.Ctx) error {
