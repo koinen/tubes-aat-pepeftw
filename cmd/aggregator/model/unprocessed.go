@@ -14,7 +14,14 @@ const (
 	ReasonTooLarge           ReasonCode = "too_large"
 	ReasonStoreRejected      ReasonCode = "store_rejected"
 	ReasonStoreUnavailable   ReasonCode = "store_unavailable"
+	// ReasonIdempotencyConflict is a field report resent under a stored Idempotency-Key with
+	// another body. The first stored body wins; the other is parked so it is not lost silently.
+	ReasonIdempotencyConflict ReasonCode = "idempotency_conflict"
 )
+
+// SourceTimLapangan marks unprocessed messages from topic field-reports. It is not a hazard
+// source: Source.Valid stays false for it.
+const SourceTimLapangan Source = "TIM_LAPANGAN"
 
 type UnprocessedStatus string
 

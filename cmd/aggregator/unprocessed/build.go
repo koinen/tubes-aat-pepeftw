@@ -14,6 +14,8 @@ import (
 	"tubes-aat-pepeftw/cmd/aggregator/mapper"
 	"tubes-aat-pepeftw/cmd/aggregator/model"
 	"tubes-aat-pepeftw/cmd/aggregator/repository"
+
+	"tubes-aat-pepeftw/internal/poison"
 )
 
 const (
@@ -87,15 +89,15 @@ func build(source model.Source, endpoint string, raw []byte, cause error, now ti
 func classify(cause error) (code model.ReasonCode, ref, detail string) {
 	var (
 		re     *mapper.RejectError
-		poison *Error
+		bad    *poison.Error
 		over   *Oversized
 		syntax *json.SyntaxError
 	)
 	switch {
 	case errors.As(cause, &re):
 		return re.Code, re.SourceRefID, re.Reason
-	case errors.As(cause, &poison):
-		return poison.Code, "", poison.Detail
+	case errors.As(cause, &bad):
+		return model.ReasonCode(bad.Kind), "", bad.Detail
 	case errors.As(cause, &over):
 		return model.ReasonTooLarge, "", over.Error()
 	case errors.As(cause, &syntax):

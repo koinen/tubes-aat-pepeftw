@@ -106,11 +106,17 @@ components:
       required: [message_id, source, received_at, reason, retryable, attempts, status]
       properties:
         message_id: { type: string }
-        source: { type: string }
+        source:
+          type: string
+          description: |
+            Sumber hazard (BMKG, PVMBG, SATELIT, SENSOR_PANTAI) atau TIM_LAPANGAN untuk record topic field-reports
+            yang tidak bisa disimpan (endpoint field-reports/<partition>/<offset>). Filter source belum menerima TIM_LAPANGAN.
         received_at: { type: string, format: date-time }
         reason:
           type: string
-          description: '"<kode>: <detail>", misalnya schema_incompatible: alert_level missing.'
+          description: |
+            "<kode>: <detail>", misalnya schema_incompatible: alert_level missing. Untuk TIM_LAPANGAN, idempotency_conflict
+            berarti Idempotency-Key yang sama dikirim dengan body lain; laporan pertama yang disimpan.
         retryable: { type: boolean }
         attempts: { type: integer }
         status: { type: string, enum: [retrying, parked] }

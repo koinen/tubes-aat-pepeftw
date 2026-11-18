@@ -55,9 +55,10 @@ func NewTokenHandler(
 	publicKey := signingKey.Public().(ed25519.PublicKey)
 
 	clients := map[string]Client{
-		"media":      {Scope: "hazard:read:summary", Secret: cfg.MediaSecret},
-		"field-team": {Scope: "hazard:read:raw", Secret: cfg.FieldTeamSecret},
-		// The scope claim is space-separated. Only bnpb-ops may read and replay failed messages.
+		"media": {Scope: "hazard:read:summary", Secret: cfg.MediaSecret},
+		// The scope claim is space-separated. Only field-team may send field reports.
+		"field-team": {Scope: "hazard:read:raw field-report:write", Secret: cfg.FieldTeamSecret},
+		// Only bnpb-ops may read and replay failed messages.
 		"bnpb-ops": {Scope: "hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed", Secret: cfg.BnpbOpsSecret},
 	}
 	return &tokenHandler{
