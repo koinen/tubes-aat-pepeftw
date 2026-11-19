@@ -12,4 +12,7 @@ ssh "${SSH_USER}@${SERVER_IP}" "cat /etc/rancher/k3s/k3s.yaml" \
 KUBECONFIG="$OUT" kubectl get nodes -o wide
 echo
 echo "use the VM cluster in this shell with:"
-echo "  export KUBECONFIG=${OUT}"
+if command -v cygpath > /dev/null; then
+  OUT="$(cygpath -w "$OUT")"
+fi
+echo "  export KUBECONFIG='${OUT}'"
