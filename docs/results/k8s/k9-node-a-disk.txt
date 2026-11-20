@@ -1,0 +1,4 @@
+node-a
+pvc-7eeb87c2-eb5b-45d2-ba0c-b5cd2e0d4095_sistem-informasi-kebencanaan-bnpb_data-kafka-1
+pvc-f9f2664b-d15a-46c2-b123-260f58509f79_sistem-informasi-kebencanaan-bnpb_data-crdb-0
+ls: cannot access '/var/lib/bnpb/': No such file or directory

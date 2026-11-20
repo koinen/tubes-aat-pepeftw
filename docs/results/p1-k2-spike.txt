@@ -1,0 +1,19 @@
+spike of 800 events in Selat Sunda, sampling node load while loading
+sample   k8s_node                   writes_per_sec    hazard_leaseholders
+1        node-a                               1308                     26
+1        node-b                               1278                      3
+1        node-c                                 76                      0
+1        node-d                                131                     17
+{"ts":"2026-11-20T15:23:40Z","level":"INFO","msg":"catalog_done","service":"aggregator","rows":800,"created":800,"unchanged":0,"rejected":0,"failed":0,"duration_ms":106916}
+2        node-a                               1341                     25
+2        node-b                               1290                      2
+2        node-c                                 85                      3
+2        node-d                                142                     16
+3        node-a                               1335                     26
+3        node-b                               1289                      2
+3        node-c                                 78                      2
+3        node-d                                134                     16
+4        node-a                               1314                     27
+4        node-b                               1279                      4
+4        node-c                                 58                      1
+4        node-d                                 81                     14

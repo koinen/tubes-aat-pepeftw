@@ -1,0 +1,9 @@
+# bmkg-mock requests in the last 15 min, 3 aggregators running
+    175 "path":"/health"
+     87 "path":"/metrics"
+      2 "path":"/seismic-events"
+      2 "path":"/tsunami-warnings"
+# pvmbg-mock
+    161 "path":"/health"
+     80 "path":"/metrics"
+      1 "path":"/volcanic-reports"

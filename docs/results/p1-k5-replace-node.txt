@@ -1,0 +1,9 @@
+removing node object node-c so its pods can move
+node "node-c" deleted
+releasing data-crdb-1, the disk of crdb-1 that lived on node-c
+persistentvolumeclaim "data-crdb-1" deleted from sistem-informasi-kebencanaan-bnpb namespace
+pod "crdb-1" force deleted from sistem-informasi-kebencanaan-bnpb namespace
+releasing data-kafka-2, the disk of kafka-2 that lived on node-c
+persistentvolumeclaim "data-kafka-2" deleted from sistem-informasi-kebencanaan-bnpb namespace
+pod "kafka-2" force deleted from sistem-informasi-kebencanaan-bnpb namespace
+error: timed out waiting for the condition on pods/crdb-1

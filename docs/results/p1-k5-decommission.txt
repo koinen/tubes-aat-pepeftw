@@ -1,0 +1,6 @@
+decommissioning dead cockroach nodes: 3 
+
+id	is_live	replicas	is_decommissioning	membership	is_draining	readiness	blocking_ranges
+3	false	0	true	decommissioning	false	ready	0
+
+No more data reported on target nodes. Please verify cluster health before removing the nodes.

@@ -1,0 +1,7 @@
+# non-owner pod (app=netpol-probe, role=other) trying each store, 5 s timeout
+crdb-public:26257 BLOCKED (timeout)
+auth-store:6379 BLOCKED (timeout)
+client-api-store:6379 BLOCKED (timeout)
+
+# same pod: DNS resolves, and a non-store service is reachable, so the block is the NetworkPolicy
+grafana:3000 OPEN (control)

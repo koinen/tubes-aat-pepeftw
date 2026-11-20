@@ -1,0 +1,117 @@
+namespace/sistem-informasi-kebencanaan-bnpb configured
+secret/bnpb-secrets unchanged
+auth keys already exist in secrets/, keeping them
+secret/auth-keys unchanged
+secret/pantai-token unchanged
+secret/ghcr-pull unchanged
+== stage infra
+namespace/sistem-informasi-kebencanaan-bnpb configured
+serviceaccount/prometheus unchanged
+role.rbac.authorization.k8s.io/prometheus-pods unchanged
+rolebinding.rbac.authorization.k8s.io/prometheus-pods unchanged
+configmap/aggregator-config unchanged
+configmap/bnpb-common unchanged
+configmap/crdb-scripts unchanged
+configmap/grafana-dashboards unchanged
+configmap/grafana-provisioning unchanged
+configmap/kafka-config unchanged
+configmap/kafka-scripts unchanged
+configmap/prometheus-config unchanged
+service/auth-store unchanged
+service/client-api-store unchanged
+service/crdb-headless unchanged
+service/crdb-public unchanged
+service/grafana unchanged
+service/jaeger unchanged
+service/kafka unchanged
+service/kafka-headless unchanged
+service/prometheus unchanged
+deployment.apps/auth-store unchanged
+deployment.apps/client-api-store unchanged
+deployment.apps/grafana unchanged
+deployment.apps/jaeger unchanged
+deployment.apps/prometheus unchanged
+statefulset.apps/crdb configured
+statefulset.apps/kafka configured
+networkpolicy.networking.k8s.io/auth-store-owner-only configured
+networkpolicy.networking.k8s.io/client-api-store-owner-only configured
+networkpolicy.networking.k8s.io/crdb-owner-only configured
+== stage sensor
+service/sensor-pantai unchanged
+deployment.apps/sensor-pantai unchanged
+networkpolicy.networking.k8s.io/sensor-pantai-aggregator-only configured
+pod/crdb-0 condition met
+pod/crdb-1 condition met
+pod/crdb-2 condition met
+pod/crdb-3 condition met
+partitioned roll out complete: 3 new pods have been updated...
+deployment "auth-store" successfully rolled out
+deployment "client-api-store" successfully rolled out
+job.batch "crdb-init" deleted from sistem-informasi-kebencanaan-bnpb namespace
+job.batch "kafka-topics" deleted from sistem-informasi-kebencanaan-bnpb namespace
+== stage init
+job.batch/crdb-init created
+job.batch/kafka-topics created
+job.batch/crdb-init condition met
+job.batch/kafka-topics condition met
+partitioned roll out complete: 4 new pods have been updated...
+job.batch "aggregator-migrate" deleted from sistem-informasi-kebencanaan-bnpb namespace
+== stage migrate
+job.batch/aggregator-migrate created
+job.batch/aggregator-migrate condition met
+deployment "sensor-pantai" successfully rolled out
+== stage apps
+serviceaccount/aggregator created
+role.rbac.authorization.k8s.io/aggregator-leases created
+rolebinding.rbac.authorization.k8s.io/aggregator-leases created
+configmap/analytics-dashboard-config created
+configmap/audit-log-config created
+configmap/auth-config created
+configmap/bmkg-mock-config created
+configmap/client-api-config created
+configmap/dashboard-updater-config created
+configmap/notifier-config created
+configmap/pvmbg-mock-config created
+service/aggregator created
+service/analytics-dashboard created
+service/audit-log created
+service/auth created
+service/bmkg-mock created
+service/client-api created
+service/dashboard-updater created
+service/field-team-receiver created
+service/notifier created
+service/pvmbg-mock created
+deployment.apps/aggregator created
+deployment.apps/analytics-dashboard created
+deployment.apps/audit-log created
+deployment.apps/auth created
+deployment.apps/bmkg-mock created
+deployment.apps/client-api created
+deployment.apps/dashboard-updater created
+deployment.apps/field-team-receiver created
+deployment.apps/notifier created
+deployment.apps/pvmbg-mock created
+networkpolicy.networking.k8s.io/field-team-receiver created
+Waiting for deployment "aggregator" rollout to finish: 0 of 3 updated replicas are available...
+Waiting for deployment "aggregator" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "aggregator" rollout to finish: 2 of 3 updated replicas are available...
+deployment "aggregator" successfully rolled out
+deployment "auth" successfully rolled out
+deployment "client-api" successfully rolled out
+deployment "notifier" successfully rolled out
+deployment "field-team-receiver" successfully rolled out
+deployment "dashboard-updater" successfully rolled out
+deployment "bmkg-mock" successfully rolled out
+deployment "pvmbg-mock" successfully rolled out
+deployment "analytics-dashboard" successfully rolled out
+health check skipped, pass --health once scripts/vm/tunnel.sh is running
+deployed tag 3b696c9-20261119230429 to namespace sistem-informasi-kebencanaan-bnpb
+Success scripts/demo/00-health.hurl (6 request(s) in 1596 ms)
+--------------------------------------------------------------------------------
+Executed files:    1
+Executed requests: 6 (3.7/s)
+Succeeded files:   1 (100.0%)
+Failed files:      0 (0.0%)
+Duration:          1608 ms (0h:0m:1s:608ms)
+

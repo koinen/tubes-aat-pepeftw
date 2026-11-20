@@ -1,0 +1,7 @@
+== pod/aggregator-887c89fc6-h89sp
+{"ts":"2026-11-20T17:34:43Z","level":"INFO","msg":"leader_acquired","service":"aggregator","identity":"aggregator-887c89fc6-h89sp","epoch":7}
+I1120 17:36:28.634593       1 leaderelection.go:304] "Failed to renew lease" lock="sistem-informasi-kebencanaan-bnpb/aggregator-leader" err="context deadline exceeded"
+{"ts":"2026-11-20T17:36:28Z","level":"WARN","msg":"leader_lost","service":"aggregator","identity":"aggregator-887c89fc6-h89sp"}
+== pod/aggregator-887c89fc6-jfmzp
+== pod/aggregator-887c89fc6-v7lth
+{"ts":"2026-11-20T17:34:59Z","level":"INFO","msg":"leader_acquired","service":"aggregator","identity":"aggregator-887c89fc6-v7lth","epoch":8}

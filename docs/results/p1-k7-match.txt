@@ -1,0 +1,5 @@
+# K7 same-moment comparison, dashboard (all time) vs Audit API, 18:09:55Z
+dashboard total 14540 partial False | BMKG=SEISMIC+TSUNAMI 10465 | PVMBG=VOLCANIC 2192 | SENSOR_PANTAI=COASTAL 1883
+audit "source":"BMKG","count":10465 "partial":false
+audit "source":"PVMBG","count":2193 "partial":false
+audit "source":"SENSOR_PANTAI","count":1885 "partial":false

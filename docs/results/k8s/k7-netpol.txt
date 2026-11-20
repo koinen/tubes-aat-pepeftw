@@ -1,0 +1,75 @@
+NAME                            POD-SELECTOR           AGE
+auth-store-owner-only           app=auth-store         21h
+client-api-store-owner-only     app=client-api-store   21h
+crdb-owner-only                 app=crdb               21h
+sensor-pantai-aggregator-only   app=sensor-pantai      21h
+
+Name:         auth-store-owner-only
+Namespace:    sistem-informasi-kebencanaan-bnpb
+Created on:   2026-11-19 23:14:53 +0700 +07
+Labels:       app=auth-store
+              bnpb.io/stage=infra
+Annotations:  <none>
+Spec:
+  PodSelector:     app=auth-store
+  Allowing ingress traffic:
+    To Port: 6379/TCP
+    From:
+      PodSelector: app=auth
+  Not affecting egress traffic
+  Policy Types: Ingress
+
+
+Name:         client-api-store-owner-only
+Namespace:    sistem-informasi-kebencanaan-bnpb
+Created on:   2026-11-19 23:14:53 +0700 +07
+Labels:       app=client-api-store
+              bnpb.io/stage=infra
+Annotations:  <none>
+Spec:
+  PodSelector:     app=client-api-store
+  Allowing ingress traffic:
+    To Port: 6379/TCP
+    From:
+      PodSelector: app=client-api
+  Not affecting egress traffic
+  Policy Types: Ingress
+
+
+Name:         crdb-owner-only
+Namespace:    sistem-informasi-kebencanaan-bnpb
+Created on:   2026-11-19 23:14:53 +0700 +07
+Labels:       app=crdb
+              bnpb.io/stage=infra
+Annotations:  <none>
+Spec:
+  PodSelector:     app=crdb
+  Allowing ingress traffic:
+    To Port: 26257/TCP
+    To Port: 8080/TCP
+    From:
+      PodSelector: app=aggregator
+    From:
+      PodSelector: app=aggregator-migrate
+    From:
+      PodSelector: app=crdb-init
+    From:
+      PodSelector: app=crdb
+  Not affecting egress traffic
+  Policy Types: Ingress
+
+
+Name:         sensor-pantai-aggregator-only
+Namespace:    sistem-informasi-kebencanaan-bnpb
+Created on:   2026-11-19 23:14:54 +0700 +07
+Labels:       app=sensor-pantai
+              bnpb.io/stage=sensor
+Annotations:  <none>
+Spec:
+  PodSelector:     app=sensor-pantai
+  Allowing ingress traffic:
+    To Port: 8080/TCP
+    From:
+      PodSelector: app=aggregator
+  Not affecting egress traffic
+  Policy Types: Ingress

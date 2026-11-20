@@ -1,0 +1,4 @@
+{"source":"BMKG","count":9159,"checksum":"e030192c47fa8ca421b11c6536c66950370798ef4e284b2622c6f665f583d617","algorithm":"sha256","as_of":"2026-11-20T15:46:24Z","partial":false,"unavailable_units":[]}
+status 200 in 3.821015s
+{"source":"PVMBG","count":534,"checksum":"bb66726393dc51c27777baea6ffad0f01f668080eb78d2ade1b4f6649ec79307","algorithm":"sha256","as_of":"2026-11-20T15:46:31Z","partial":false,"unavailable_units":[]}
+status 200 in 2.565177s
