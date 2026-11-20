@@ -1,0 +1,13 @@
+== pod/tester-agent-6zjg7
+2026/11/20 13:41:16 tester-agent mulai di node node-b; sha256 biner=86d511c735a67b21a406116da594a12927585867cb391dfdd4d6a222965aa418
+== pod/tester-agent-97hmd
+2026/11/20 17:03:49 tester-agent mulai di node node-e; sha256 biner=86d511c735a67b21a406116da594a12927585867cb391dfdd4d6a222965aa418
+== pod/tester-agent-rgsqb
+2026/11/20 13:41:16 tester-agent mulai di node node-a; sha256 biner=86d511c735a67b21a406116da594a12927585867cb391dfdd4d6a222965aa418
+== pod/tester-agent-v5hws
+2026/11/20 13:41:14 tester-agent mulai di node node-d; sha256 biner=86d511c735a67b21a406116da594a12927585867cb391dfdd4d6a222965aa418
+{"seq":1,"ts":"2026-11-20T17:45:05Z","action":"[L] skenario \"clock-skew\" (practice) mulai; 1 langkah","prev":"","mac":"b9e84f32115f15bc7bdec7fdb1ec6143311e1a611089dc96e59006301e3ea361"}
+{"seq":2,"ts":"2026-11-20T17:45:10Z","action":"[L] langkah 1 mulai: shift_clock +300s selama 30s nodes=any","prev":"0054e16e0b3ed9d3e999b3cea101e4ca1cb2859a4a3509cd43af9bbbee1f60ca","mac":"b73170432907d7364e8adf79b09a27ebef51b92d1
+{"seq":3,"ts":"2026-11-20T17:40:40Z","action":"[L] langkah 1 selesai","prev":"28c1f034f8e98503332c44bec6e475d4ad1a1163ca2a7428416e2bf29f23b0fc","mac":"da88ea803a2deb9ef7b8b50c7dc51bbf8fd4eb790a85f9b7ef2a6f1b369202d2"}
+{"seq":4,"ts":"2026-11-20T17:40:40Z","action":"[L] skenario selesai","prev":"0007ea85d3b79e0eaff51ada9c2b451dda719d3a78998400e8f5dc05606de144","mac":"84a36fe00544d261577d5fa3f84fa4678b898961d856b78984eaed8a5206dd54"}
+{"seq":5,"ts":"2026-11-20T17:40:40Z","action":"[L] pemulihan akhir selesai; keadaan bersih","prev":"cb2417e7dd510f6faff69f3739d54ba0a7850214ab7a4e0e60be49aa3432fcd5","mac":"702dbc0cc3c545c958abd9f18b971f30325d5a3d2089d4aa07a483a12

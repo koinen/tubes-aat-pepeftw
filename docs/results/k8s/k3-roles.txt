@@ -1,0 +1,5 @@
+NAME     STATUS   ROLES           AGE   VERSION
+node-a   Ready    control-plane   26h   v1.37.2+k3s1
+node-b   Ready    <none>          26h   v1.37.2+k3s1
+node-c   Ready    <none>          26h   v1.37.2+k3s1
+node-d   Ready    <none>          26h   v1.37.2+k3s1

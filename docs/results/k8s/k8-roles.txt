@@ -1,0 +1,29 @@
+NAME                                   READY   STATUS      RESTARTS      AGE     ROLE
+aggregator-74dcc87c9f-gnvn7            1/1     Running     0             3m24s   aggregator
+aggregator-74dcc87c9f-p5qlq            1/1     Running     0             3m24s   aggregator
+aggregator-74dcc87c9f-zrzbh            1/1     Running     0             3m24s   aggregator
+aggregator-migrate-6f6ng               0/1     Completed   0             3m34s   other
+analytics-dashboard-d8dbb7895-n9jln    1/1     Running     0             3m24s   api
+auth-6dd9d78d6b-l2pqm                  1/1     Running     0             3m24s   api
+auth-store-fc9d64cb8-7hsnv             1/1     Running     1 (67m ago)   22h     store
+bmkg-mock-6bf78d555b-ttfcv             1/1     Running     0             3m24s   mock
+client-api-8bf7894c9-8vl2v             1/1     Running     0             3m24s   api
+client-api-store-644fcb9c4d-j2jgn      1/1     Running     1 (66m ago)   22h     store
+crdb-0                                 1/1     Running     0             49m     store
+crdb-1                                 1/1     Running     0             50m     store
+crdb-2                                 1/1     Running     0             50m     store
+crdb-3                                 1/1     Running     0             50m     store
+crdb-init-hdtw8                        0/1     Completed   0             4m18s   other
+dashboard-updater-787cf5c787-qxjwp     1/1     Running     0             3m24s   consumer
+field-team-receiver-796b875997-dm7d9   1/1     Running     0             3m23s   other
+field-team-receiver-796b875997-mm52x   1/1     Running     0             3m23s   other
+grafana-844dcbb445-sccn6               1/1     Running     1 (66m ago)   22h     other
+jaeger-bfcfcd6bb-rbncz                 1/1     Running     1 (66m ago)   22h     other
+kafka-0                                1/1     Running     1 (66m ago)   22h     broker
+kafka-1                                1/1     Running     1 (67m ago)   22h     broker
+kafka-2                                1/1     Running     1 (67m ago)   22h     broker
+kafka-topics-6zl6w                     0/1     Completed   0             4m18s   other
+notifier-65fff76868-sqrq8              1/1     Running     0             3m23s   consumer
+prometheus-795f86859b-6tcnr            1/1     Running     1 (66m ago)   22h     other
+pvmbg-mock-544b586dfc-5xsp7            1/1     Running     0             3m23s   mock
+sensor-pantai-84f45697b7-n88xf         1/1     Running     1 (66m ago)   22h     sensor

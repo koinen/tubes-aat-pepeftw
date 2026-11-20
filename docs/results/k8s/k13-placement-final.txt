@@ -1,0 +1,26 @@
+NAME                                   READY   STATUS    RESTARTS        AGE     IP           NODE     NOMINATED NODE   READINESS GATES   ROLE
+aggregator-887c89fc6-8twh7             1/1     Running   0               26m     10.42.3.26   node-d   <none>           <none>            aggregator
+aggregator-887c89fc6-v7lth             1/1     Running   0               38m     10.42.2.23   node-b   <none>           <none>            aggregator
+aggregator-887c89fc6-vd6rh             1/1     Running   0               13m     10.42.0.37   node-a   <none>           <none>            aggregator
+analytics-dashboard-d8dbb7895-n9jln    1/1     Running   0               3h52m   10.42.0.28   node-a   <none>           <none>            api
+auth-6dd9d78d6b-hpr7z                  1/1     Running   0               13m     10.42.3.29   node-d   <none>           <none>            api
+auth-store-fc9d64cb8-qxgj9             1/1     Running   0               150m    10.42.0.34   node-a   <none>           <none>            store
+bmkg-mock-6bf78d555b-nf87v             1/1     Running   0               13m     10.42.3.31   node-d   <none>           <none>            mock
+client-api-8bf7894c9-829bs             1/1     Running   0               13m     10.42.3.28   node-d   <none>           <none>            api
+client-api-store-644fcb9c4d-68bv9      1/1     Running   0               13m     10.42.3.27   node-d   <none>           <none>            store
+crdb-0                                 1/1     Running   0               29m     10.42.0.36   node-a   <none>           <none>            store
+crdb-1                                 1/1     Running   0               29m     10.42.9.11   node-e   <none>           <none>            store
+crdb-2                                 1/1     Running   0               29m     10.42.3.25   node-d   <none>           <none>            store
+crdb-3                                 1/1     Running   3 (28m ago)     29m     10.42.2.25   node-b   <none>           <none>            store
+dashboard-updater-787cf5c787-sxhm6     1/1     Running   0               13m     10.42.3.30   node-d   <none>           <none>            consumer
+field-team-receiver-796b875997-lzpnl   1/1     Running   0               13m     10.42.2.26   node-b   <none>           <none>            other
+field-team-receiver-796b875997-mm52x   1/1     Running   0               3h52m   10.42.0.30   node-a   <none>           <none>            other
+grafana-844dcbb445-sccn6               1/1     Running   1 (4h55m ago)   25h     10.42.2.9    node-b   <none>           <none>            other
+jaeger-bfcfcd6bb-rbncz                 1/1     Running   1 (4h55m ago)   25h     10.42.2.11   node-b   <none>           <none>            other
+kafka-0                                1/1     Running   1 (4h55m ago)   25h     10.42.2.12   node-b   <none>           <none>            broker
+kafka-1                                1/1     Running   1 (4h56m ago)   25h     10.42.0.20   node-a   <none>           <none>            broker
+kafka-2                                1/1     Running   0               102m    10.42.3.23   node-d   <none>           <none>            broker
+notifier-65fff76868-sqrq8              1/1     Running   0               3h52m   10.42.0.31   node-a   <none>           <none>            consumer
+prometheus-795f86859b-6tcnr            1/1     Running   1 (4h55m ago)   25h     10.42.2.10   node-b   <none>           <none>            other
+pvmbg-mock-544b586dfc-nvh2z            1/1     Running   0               38m     10.42.2.24   node-b   <none>           <none>            mock
+sensor-pantai-84f45697b7-bbg8c         1/1     Running   0               38m     10.42.2.22   node-b   <none>           <none>            sensor

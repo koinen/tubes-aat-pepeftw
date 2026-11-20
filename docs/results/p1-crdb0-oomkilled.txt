@@ -1,0 +1,7 @@
+NAME     READY   STATUS    RESTARTS        AGE   IP           NODE     NOMINATED NODE   READINESS GATES
+crdb-0   0/1     Running   4 (2m31s ago)   89m   10.42.0.22   node-a   <none>           <none>
+crdb-1   1/1     Running   0               89m   10.42.1.10   node-c   <none>           <none>
+crdb-2   1/1     Running   0               89m   10.42.3.11   node-d   <none>           <none>
+crdb-3   1/1     Running   0               89m   10.42.2.14   node-b   <none>           <none>
+
+crdb-0 last termination: OOMKilled exit 137 at 2026-11-20T14:58:27Z

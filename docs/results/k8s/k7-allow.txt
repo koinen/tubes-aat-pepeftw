@@ -1,0 +1,6 @@
+# pod labelled like the owner (app=aggregator) reaching crdb after kube-router picks up its IP, 5 s timeout
+crdb-public:26257 OPEN (owner allowed)
+# the real owner pods use crdb: aggregator log
+{"ts":"2026-11-20T14:18:18Z","level":"WARN","msg":"database_unavailable","service":"aggregator","attempt":1,"error":"failed to connect to `user=aat database=aggregator`: 10.43.41.100:26257 (crdb-publi
+{"ts":"2026-11-20T14:18:19Z","level":"INFO","msg":"database_connected","service":"aggregator"}
+{"ts":"2026-11-20T14:18:19Z","level":"INFO","msg":"leader_workers_ready","service":"aggregator","poller":true,"satellite":true}

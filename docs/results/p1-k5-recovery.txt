@@ -1,0 +1,14 @@
+00:08:03 still recovering
+fully replicated again after 97s
+  crdb_node | k8s_node |          address           |   membership   | is_live
+------------+----------+----------------------------+----------------+----------
+          1 | node-a   | crdb-0.crdb-headless:26257 | active         |    t
+          2 | node-d   | crdb-2.crdb-headless:26257 | active         |    t
+          3 | node-c   | crdb-1.crdb-headless:26257 | decommissioned |    f
+          4 | node-b   | crdb-3.crdb-headless:26257 | active         |    t
+          5 | node-e   | crdb-1.crdb-headless:26257 | active         |    t
+(5 rows)
+  underreplicated_ranges | unavailable_ranges
+-------------------------+---------------------
+                      73 |                 73
+(1 row)

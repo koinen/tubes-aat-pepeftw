@@ -1,0 +1,8 @@
+$vagrant ssh node-c -c "hostname; sudo ls /var/lib/rancher/k3s/storage/ /var/lib/bnpb/ 2>&1"
+node-c
+/var/lib/bnpb/:
+auth-store
+
+/var/lib/rancher/k3s/storage/:
+pvc-2be1d431-1909-42e2-9f09-b32273bfda06_sistem-informasi-kebencanaan-bnpb_data-crdb-1
+pvc-6787efa7-2981-4bea-941c-d7f3795d9224_sistem-informasi-kebencanaan-bnpb_data-kafka-2

@@ -1,0 +1,8 @@
+Name:               node-a
+Taints:             <none>
+Name:               node-b
+Taints:             <none>
+Name:               node-c
+Taints:             <none>
+Name:               node-d
+Taints:             <none>

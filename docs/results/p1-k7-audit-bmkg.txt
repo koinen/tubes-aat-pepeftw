@@ -1,0 +1,2 @@
+{"source":"BMKG","count":10188,"checksum":"72b2d7279d5603961b848fe85b6bf5356cc6261cbe98c9ac1efbf7c64014f154","algorithm":"sha256","as_of":"2026-11-20T17:13:54Z","partial":false,"unavailable_units":[]}
+status 200 in 7.170263s
