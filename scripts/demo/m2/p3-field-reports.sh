@@ -15,6 +15,8 @@
 #      AGG_REPLICAS (default 3).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
+# Retry SQL through a pod restart or a short quorum loss on the laptop cluster (see lib.sh).
+CRDB_RETRIES="${CRDB_RETRIES:-5}"
 . scripts/p1/lib.sh
 
 REPORTS="${REPORTS:-30}"
@@ -104,6 +106,7 @@ send() {
 }
 
 step "0. Setup"
+wait_crdb_stable
 echo "client-api $BASE_URL, auth $AUTH_URL, run $RUN"
 if ! kafka kafka-topics.sh --describe --topic "$TOPIC" 2>/dev/null | grep -q "Topic: $TOPIC"; then
   echo "topic $TOPIC is missing; creating it like deploy/base/kafka/scripts.yaml"

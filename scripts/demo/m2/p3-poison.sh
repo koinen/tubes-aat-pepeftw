@@ -20,6 +20,8 @@
 #      KCAT_IMAGE (default edenhill/kcat:1.7.1; sends raw bytes, which kafka-console-producer cannot).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
+# Retry SQL through a pod restart or a short quorum loss on the laptop cluster (see lib.sh).
+CRDB_RETRIES="${CRDB_RETRIES:-5}"
 . scripts/p1/lib.sh
 
 KCAT_IMAGE="${KCAT_IMAGE:-edenhill/kcat:1.7.1}"
@@ -124,6 +126,7 @@ rows_since() {
 }
 
 step "0. Setup"
+wait_crdb_stable
 START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "run $RUN, start $START, client-api $BASE_URL"
 ensure_topic field-reports
@@ -144,10 +147,12 @@ for pair in truncated:malformed_json deep:too_deep invalid_utf8:invalid_utf8 ove
   curl -s -X POST -H "X-Admin-Key: $PVMBG_ADMIN_KEY" -H 'Content-Type: application/json' \
     -d "{\"kind\":\"$kind\",\"count\":1}" "http://localhost:$MOCK_PORT/admin/corrupt"
   echo
-  n=0
-  for _ in $(seq 1 30); do
-    n="$(rows_since PVMBG "$code")"
+  n=0; poll_end=$(( $(date -u +%s) + 180 ))
+  for _ in $(seq 1 60); do
+    n="$(rows_since PVMBG "$code" || true)"
+    case "$n" in ''|*[!0-9]*) n=0 ;; esac
     [ "$n" -ge 1 ] && break
+    [ "$(date -u +%s)" -lt "$poll_end" ] || break
     sleep 2
   done
   echo "  $kind -> PVMBG rows with $code: $n"

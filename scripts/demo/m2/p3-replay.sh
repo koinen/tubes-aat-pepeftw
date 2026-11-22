@@ -15,6 +15,8 @@
 #      AUDIT_TOKEN, PVMBG_ADMIN_KEY (default: read from .env).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
+# Retry SQL through a pod restart or a short quorum loss on the laptop cluster (see lib.sh).
+CRDB_RETRIES="${CRDB_RETRIES:-5}"
 . scripts/p1/lib.sh
 
 KILL_LEADER=false
@@ -109,6 +111,7 @@ wait_job() {
 }
 
 step "0. Current state"
+wait_crdb_stable
 forward_mock
 forward_aggregator
 wait_port "$MOCK_PORT"
