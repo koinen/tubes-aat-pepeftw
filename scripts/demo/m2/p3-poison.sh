@@ -9,10 +9,14 @@
 #   4. notifier, audit-log and dashboard-updater forward each bad hazard-events value to topic
 #      unprocessed and commit; the aggregator parks it as INTERNAL, one row per record although three
 #      consumer groups forwarded it. SQL and GET /internal/unprocessed?source=... show the rows.
+#   5. Only BNPB Internal Ops may read failed messages (P3 K5): client-api /unprocessed gives 401
+#      without a token and 403 to media and field-team, 200 to bnpb-ops; the aggregator's
+#      /internal/unprocessed gives 401 to anything but OPS_TOKEN. Exits non-zero if one differs.
 #
 # Usage: scripts/demo/m2/p3-poison.sh
 # Env: NS, BASE_URL (client-api, default http://<node-ip>:30080), AUTH_URL (default
-#      http://<node-ip>:30084), LAPANGAN_SECRET, OPS_TOKEN, PVMBG_ADMIN_KEY (default: read from .env),
+#      http://<node-ip>:30084), LAPANGAN_SECRET, MEDIA_SECRET, BNPB_SECRET, OPS_TOKEN, AUDIT_TOKEN,
+#      PVMBG_ADMIN_KEY (default: read from .env),
 #      KCAT_IMAGE (default edenhill/kcat:1.7.1; sends raw bytes, which kafka-console-producer cannot).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -25,6 +29,9 @@ GROUPS_HAZARD=(notifier audit-log dashboard-updater)
 
 env_value() { grep "^$1=" .env | cut -d= -f2- | tr -d '\r'; }
 LAPANGAN_SECRET="${LAPANGAN_SECRET:-$(env_value LAPANGAN_SECRET)}"
+MEDIA_SECRET="${MEDIA_SECRET:-$(env_value MEDIA_SECRET)}"
+BNPB_SECRET="${BNPB_SECRET:-$(env_value BNPB_SECRET)}"
+AUDIT_TOKEN="${AUDIT_TOKEN:-$(env_value AUDIT_TOKEN)}"
 OPS_TOKEN="${OPS_TOKEN:-$(env_value OPS_TOKEN)}"
 PVMBG_ADMIN_KEY="${PVMBG_ADMIN_KEY:-$(env_value PVMBG_ADMIN_KEY)}"
 NODE_IP="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')"
@@ -78,6 +85,27 @@ wait_lag_zero() {
   echo "  $1 on $2: lag $lag"
 }
 
+FAILS=0
+# expect_status <label> <want> <curl args...>: one request, PASS if the HTTP status is <want>.
+expect_status() {
+  local label="$1" want="$2" got
+  shift 2
+  got="$(curl -s -o /dev/null -w '%{http_code}' "$@" || true)"
+  if [ "$got" = "$want" ]; then
+    printf '  PASS: %-44s -> %s\n' "$label" "$got"
+  else
+    printf '  FAIL: %-44s -> %s (want %s)\n' "$label" "$got" "$want"
+    FAILS=$((FAILS + 1))
+  fi
+}
+
+# client_token <client_id> <secret>: a client-credentials access token, or empty.
+client_token() {
+  curl -s -X POST "$AUTH_URL/token" -H 'Content-Type: application/json' \
+    -d "{\"grant_type\":\"client_credentials\",\"client_id\":\"$1\",\"client_secret\":\"$2\"}" \
+    | jq -r '.access_token // empty'
+}
+
 # produce <topic>: sends stdin, byte for byte, as one record.
 produce() { kubectl -n "$NS" exec -i "$KCAT_POD" -- kcat -b kafka:9092 -t "$1" -P; }
 
@@ -129,9 +157,8 @@ curl -s "http://localhost:$AGG_PORT/internal/sources/status" -H "X-Internal-Key:
   | jq -c '.data.PVMBG // .' || true
 
 step "2. Bad field-report bodies (client-api rejects them; nothing is produced)"
-TOKEN="$(curl -s -X POST "$AUTH_URL/token" -H 'Content-Type: application/json' \
-  -d "{\"grant_type\":\"client_credentials\",\"client_id\":\"field-team\",\"client_secret\":\"$LAPANGAN_SECRET\"}" | jq -r .access_token)"
-[ -n "$TOKEN" ] && [ "$TOKEN" != null ] || { echo "no field-team token; check LAPANGAN_SECRET" >&2; exit 1; }
+TOKEN="$(client_token field-team "$LAPANGAN_SECRET")"
+[ -n "$TOKEN" ] || { echo "no field-team token; check LAPANGAN_SECRET" >&2; exit 1; }
 before="$(kafka kafka-get-offsets.sh --topic field-reports | awk -F: '{s += $3} END {print s}')"
 GOOD='"latitude":-7.54,"longitude":110.44,"reported_at":"2026-11-18T03:00:00Z"'
 post_report() { # post_report <label> <file with the body>
@@ -183,9 +210,34 @@ for source in PVMBG TIM_LAPANGAN INTERNAL; do
     | jq -c '.items[] | {source, status, reason: (.reason | .[0:90])}'
 done
 
-step "6. Every service is still up"
+step "6. Only BNPB Internal Ops may read failed messages"
+MEDIA_TOKEN="$(client_token media "$MEDIA_SECRET")"
+OPS_CLIENT_TOKEN="$(client_token bnpb-ops "$BNPB_SECRET")"
+[ -n "$MEDIA_TOKEN" ] || { echo "no media token; check MEDIA_SECRET" >&2; exit 1; }
+[ -n "$OPS_CLIENT_TOKEN" ] || { echo "no bnpb-ops token; check BNPB_SECRET" >&2; exit 1; }
+LIST="unprocessed?source=PVMBG&limit=1"
+echo "-- client-api $BASE_URL/$LIST (scope hazard:read:unprocessed)"
+expect_status "no token" 401 "$BASE_URL/$LIST"
+expect_status "media" 403 -H "Authorization: Bearer $MEDIA_TOKEN" "$BASE_URL/$LIST"
+expect_status "field-team" 403 -H "Authorization: Bearer $TOKEN" "$BASE_URL/$LIST"
+expect_status "bnpb-ops" 200 -H "Authorization: Bearer $OPS_CLIENT_TOKEN" "$BASE_URL/$LIST"
+expect_status "media, POST /unprocessed/replay" 403 -X POST -H "Authorization: Bearer $MEDIA_TOKEN" \
+  "$BASE_URL/unprocessed/replay?source=PVMBG"
+echo "-- aggregator /internal/$LIST (OPS_TOKEN only; only client-api holds it)"
+AGG_LIST="http://localhost:$AGG_PORT/internal/$LIST"
+expect_status "no token" 401 "$AGG_LIST"
+expect_status "media JWT" 401 -H "Authorization: Bearer $MEDIA_TOKEN" "$AGG_LIST"
+expect_status "bnpb-ops JWT (must go through client-api)" 401 -H "Authorization: Bearer $OPS_CLIENT_TOKEN" "$AGG_LIST"
+expect_status "AUDIT_TOKEN" 401 -H "Authorization: Bearer $AUDIT_TOKEN" "$AGG_LIST"
+expect_status "OPS_TOKEN" 200 -H "Authorization: Bearer $OPS_TOKEN" "$AGG_LIST"
+
+step "7. Every service is still up"
 kubectl -n "$NS" get pods -l 'app in (aggregator,notifier,audit-log,dashboard-updater,client-api,pvmbg-mock)'
 
 echo
 echo "evidence: $LOG"
 rm -f /tmp/p3-poison-body.$$ "$B"
+if [ "$FAILS" -gt 0 ]; then
+  echo "RESULT: $FAILS access check(s) FAILED"
+  exit 1
+fi

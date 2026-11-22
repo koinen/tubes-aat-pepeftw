@@ -5,7 +5,9 @@
 #   2. The rules go into the aggregator ConfigMap and the aggregator rolls out ("sistem disesuaikan").
 #   3. POST replay, poll the job until done.
 #   4. Checks: no PVMBG schema rows left parked, one hazard per source_ref_id, one outbox row per
-#      hazard, and a second replay selects 0.
+#      hazard, and the job wrote its outbox rows in (received_at, message_id) order.
+#   5. A second replay recovers 0.
+# Exits non-zero if any check fails.
 #
 # Usage: scripts/demo/m2/p3-replay.sh [--kill-leader]
 #   --kill-leader  delete the leader pod as soon as the job is running; the next leader resumes it.
@@ -68,6 +70,17 @@ wait_port() {
 }
 
 agg() { curl -s -H "Authorization: Bearer $OPS_TOKEN" "$@"; }
+
+FAILS=0
+pass() { echo "PASS: $*"; }
+fail() { echo "FAIL: $*"; FAILS=$((FAILS + 1)); }
+
+# check_zero LABEL SQL: the query returns one count, and the check passes when it is 0.
+check_zero() {
+  local got
+  got="$(crdb_sql_tsv "$2" | tr -d '[:space:]"')"
+  if [ "$got" = 0 ]; then pass "$1 = 0"; else fail "$1 = ${got:-<no result>}"; fi
+}
 
 schema_version() {
   curl -s -X POST -H "X-Admin-Key: $PVMBG_ADMIN_KEY" -H 'Content-Type: application/json' \
@@ -144,22 +157,57 @@ if $KILL_LEADER; then
 fi
 wait_job "$JOB" | tee "$EVIDENCE_DIR/job.json"
 $KILL_LEADER && echo "leader now: $(leader_pod)"
-jq -e '.status == "done" and .selected == .recovered + .still_parked + .handed_to_retry + .not_replayable' \
-  "$EVIDENCE_DIR/job.json" > /dev/null && echo "PASS: done, counters add up" || echo "FAIL: counters do not add up"
+if jq -e '.status == "done" and .selected == .recovered + .still_parked + .handed_to_retry + .not_replayable' \
+  "$EVIDENCE_DIR/job.json" > /dev/null; then pass "done, counters add up"; else fail "job not done or counters do not add up"; fi
+jq -e '.recovered > 0' "$EVIDENCE_DIR/job.json" > /dev/null && pass "the job recovered rows" || fail "the job recovered 0 rows"
 
 step "4. Checks"
-echo "parked PVMBG schema rows: $(parked_schema_rows)"
 crdb_sql "SELECT status, count(*) FROM unprocessed_messages WHERE source = 'PVMBG' GROUP BY status ORDER BY status"
-crdb_sql "SELECT count(*) AS duplicated_source_ref_ids FROM (SELECT source_ref_id FROM hazard_events WHERE source = 'PVMBG' GROUP BY source_ref_id HAVING count(*) > 1)"
-crdb_sql "SELECT count(*) AS hazards_with_more_than_one_created_event FROM (SELECT hazard_id FROM outbox WHERE event_type = 'HAZARD_CREATED' AND hazard_id IN (SELECT hazard_id FROM hazard_events WHERE source = 'PVMBG') GROUP BY hazard_id HAVING count(*) > 1)"
 crdb_sql "SELECT count(*) AS outbox_rows_of_this_job FROM outbox WHERE correlation_id = '$JOB'"
-crdb_sql "SELECT h.source_ref_id, h.occurred_at, h.ingested_at, u.received_at FROM unprocessed_messages u JOIN hazard_events h ON h.source = 'PVMBG' AND h.source_ref_id = u.source_ref_id WHERE u.status = 'recovered' ORDER BY u.received_at LIMIT 5"
+check_zero "parked PVMBG schema rows" \
+  "SELECT count(*) FROM unprocessed_messages WHERE source = 'PVMBG' AND status = 'parked' AND reason LIKE 'schema_incompatible:%'"
+check_zero "PVMBG source_ref_ids with more than one hazard" \
+  "SELECT count(*) FROM (SELECT source_ref_id FROM hazard_events WHERE source = 'PVMBG' GROUP BY source_ref_id HAVING count(*) > 1)"
+check_zero "PVMBG hazards with more than one HAZARD_CREATED" \
+  "SELECT count(*) FROM (SELECT hazard_id FROM outbox WHERE event_type = 'HAZARD_CREATED' AND hazard_id IN (SELECT hazard_id FROM hazard_events WHERE source = 'PVMBG') GROUP BY hazard_id HAVING count(*) > 1)"
 
-step "5. A second replay selects 0"
+# Order: the job replays rows one transaction at a time in (received_at, message_id) order, and
+# outbox.id is a sequence, so the job's outbox rows sorted by id must follow that order. A
+# source_ref_id's hazard is created by its first row in that order, so each hazard is keyed by
+# the smallest (received_at, message_id) of its recovered rows.
+ORDER_SQL="WITH first AS (
+    SELECT DISTINCT ON (source_ref_id) source_ref_id, received_at, message_id
+    FROM unprocessed_messages WHERE source = 'PVMBG' AND status = 'recovered'
+    ORDER BY source_ref_id, received_at, message_id),
+  r AS (
+    SELECT o.id, f.received_at, f.message_id
+    FROM outbox o JOIN hazard_events h ON h.hazard_id = o.hazard_id JOIN first f ON f.source_ref_id = h.source_ref_id
+    WHERE o.correlation_id = '$JOB' AND h.source = 'PVMBG'),
+  s AS (
+    SELECT received_at, message_id, lag(received_at) OVER (ORDER BY id) AS prev_at, lag(message_id) OVER (ORDER BY id) AS prev_id
+    FROM r)
+  SELECT count(*) FROM s WHERE prev_at IS NOT NULL AND (received_at < prev_at OR (received_at = prev_at AND message_id < prev_id))"
+if jq -e '.handed_to_retry == 0' "$EVIDENCE_DIR/job.json" > /dev/null; then
+  check_zero "job outbox rows out of (received_at, message_id) order" "$ORDER_SQL"
+else
+  # The retry worker writes those rows later, out of the job's order, by design.
+  echo "SKIP: order check, the job handed rows to the retry worker"
+fi
+crdb_sql "SELECT h.source_ref_id, o.id AS outbox_id, u.received_at, h.ingested_at FROM outbox o JOIN hazard_events h ON h.hazard_id = o.hazard_id JOIN unprocessed_messages u ON u.source = 'PVMBG' AND u.source_ref_id = h.source_ref_id AND u.status = 'recovered' WHERE o.correlation_id = '$JOB' ORDER BY o.id LIMIT 10"
+
+step "5. A second replay recovers 0"
 JOB2="$(agg -X POST "http://localhost:$AGG_PORT/internal/unprocessed/replay?source=PVMBG" | jq -r .job_id)"
 wait_job "$JOB2" | tee "$EVIDENCE_DIR/job-second.json"
-jq -e '.status == "done" and .recovered == 0' "$EVIDENCE_DIR/job-second.json" > /dev/null \
-  && echo "PASS: nothing left to recover" || echo "FAIL: the second replay recovered rows"
+if jq -e '.status == "done" and .recovered == 0' "$EVIDENCE_DIR/job-second.json" > /dev/null; then
+  pass "nothing left to recover"
+else
+  fail "the second replay recovered rows"
+fi
 
 echo
 echo "evidence: $LOG"
+if [ "$FAILS" -gt 0 ]; then
+  echo "RESULT: $FAILS check(s) FAILED"
+  exit 1
+fi
+echo "RESULT: all checks PASS"

@@ -16,6 +16,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -27,6 +28,9 @@ from datetime import datetime, timedelta, timezone
 SLO_TARGET = 0.99
 LATENCY_LIMIT_S = 5.0
 P95_MIN_SAMPLES = 20
+# A parked row is written shortly after its response was fetched; allow this much after t1.
+PARKED_SLACK = timedelta(seconds=60)
+RFC3339 = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 
 REQUIRED_EVIDENCE = [
     "offsets-start.txt",
@@ -83,6 +87,26 @@ def read_jsonl(path):
 
 # ---------------------------------------------------------------------------
 # Scoring
+
+
+def identity_problem(p):
+    """Why a parked critical has no deliverable identity, or None if its identity is valid.
+
+    Mirrors observation.readIdentity in cmd/aggregator/mapper/coastal.go: observation_id, station_id
+    and observed_at must be non-empty strings, station_id must be in /v1/stations, and observed_at
+    must be RFC 3339. Only these records are parked without an alert (Q5.5); any other parked
+    critical with no stored HazardEvent is a lost alert.
+    """
+    for key in ("observation_id", "station_id", "observed_at"):
+        v = p.get(key)
+        if not isinstance(v, str) or not v.strip():
+            return f"{key} missing or empty"
+    # The station list is not available here, so read the mapper's own rejection text.
+    if f'station_id "{p["station_id"]}" tidak ada di /v1/stations' in (p.get("reason") or ""):
+        return "unknown station_id"
+    if not RFC3339.match(p["observed_at"]) or parse_ts(p["observed_at"]) is None:
+        return "observed_at not RFC 3339"
+    return None
 
 
 def nearest_rank(values, q):
@@ -146,6 +170,22 @@ def score(events, receipts, t0, t1, pages=None, parked=None, evidence_present=No
             )
         rows.append(row)
 
+    parked = parked or []
+    stored_refs = {e.get("source_ref_id") for e in events if e.get("source") == "SENSOR_PANTAI"}
+    undeliverable, lost_parked = [], []
+    for p in parked:
+        if p.get("critical") is not True or p.get("observation_id") in stored_refs:
+            continue
+        rec = parse_ts(p.get("received_at"))
+        if rec is not None and not (t0 <= rec <= t1 + PARKED_SLACK):
+            continue  # an unparseable received_at is kept: better a false alarm than a hidden loss
+        why = identity_problem(p)
+        if why:
+            undeliverable.append(dict(p, identity_problem=why))
+        else:
+            lost_parked.append(p)
+    lost = len(lost_parked)
+
     n = len(rows)
     counts = Counter(r["cls"] for r in rows)
     good, late, missing = counts["good"], counts["late"], counts["missing"]
@@ -162,10 +202,12 @@ def score(events, receipts, t0, t1, pages=None, parked=None, evidence_present=No
     else:
         p95, p95_method = None, "no receipts"
 
-    sli = good / n if n else None
-    allowed_bad = (1 - SLO_TARGET) * n
-    bad = late + missing
-    burn = (bad / allowed_bad) if n else None
+    # Lost parked criticals are critical events that never reached anyone: they count as bad.
+    total = n + lost
+    sli = good / total if total else None
+    allowed_bad = (1 - SLO_TARGET) * total
+    bad = late + missing + lost
+    burn = (bad / allowed_bad) if total else None
 
     pages = pages or []
     partial_pages = [p for p in pages if p.get("partial")]
@@ -173,8 +215,9 @@ def score(events, receipts, t0, t1, pages=None, parked=None, evidence_present=No
     checks = [
         ("audit pages fetched", bool(pages)),
         ("every audit page partial=false", bool(pages) and not partial_pages),
-        ("n >= 1", n >= 1),
+        ("critical events >= 1", total >= 1),
         ("missing = 0", missing == 0),
+        ("parked criticals with valid identity = 0", lost == 0),
         (f"SLI >= {SLO_TARGET:.0%}", sli is not None and sli >= SLO_TARGET),
     ]
     data_ok = all(ok for _, ok in checks[:2])
@@ -182,18 +225,12 @@ def score(events, receipts, t0, t1, pages=None, parked=None, evidence_present=No
     for name in REQUIRED_EVIDENCE:
         checks.append((f"evidence file {name}", bool(evidence_present.get(name))))
 
-    if not data_ok or n == 0 or not all(evidence_present.get(x) for x in REQUIRED_EVIDENCE):
+    if not data_ok or total == 0 or not all(evidence_present.get(x) for x in REQUIRED_EVIDENCE):
         verdict = "INCONCLUSIVE"
-    elif missing == 0 and sli >= SLO_TARGET:
+    elif missing == 0 and lost == 0 and sli >= SLO_TARGET:
         verdict = "PASS"
     else:
         verdict = "FAIL"
-
-    parked = parked or []
-    stored_refs = {e.get("source_ref_id") for e in events if e.get("source") == "SENSOR_PANTAI"}
-    undeliverable = [
-        p for p in parked if p.get("critical") is True and p.get("observation_id") not in stored_refs
-    ]
 
     return {
         "window": {"t0": fmt_ts(t0), "t1": fmt_ts(t1)},
@@ -217,6 +254,7 @@ def score(events, receipts, t0, t1, pages=None, parked=None, evidence_present=No
         "partial_pages": len(partial_pages),
         "unavailable_units": sorted({u for p in partial_pages for u in p.get("unavailable_units", [])}),
         "undeliverable_parked_criticals": len(undeliverable),
+        "lost_parked_criticals": lost,
         "checks": [{"check": c, "ok": ok} for c, ok in checks],
         "verdict": verdict,
         "rows": [
@@ -228,6 +266,7 @@ def score(events, receipts, t0, t1, pages=None, parked=None, evidence_present=No
             for r in rows
         ],
         "undeliverable": undeliverable,
+        "lost_parked": lost_parked,
     }
 
 
@@ -240,7 +279,9 @@ def render(result):
     out.append(f"Critical cohort n    : {result['n']}")
     out.append(f"  good (<= {LATENCY_LIMIT_S:.0f} s)      : {result['good']}")
     out.append(f"  late (>  {LATENCY_LIMIT_S:.0f} s)      : {result['late']}")
-    out.append(f"  missing            : {result['missing']}   (0 lost <=> missing = 0)")
+    out.append(f"  missing            : {result['missing']}   (0 lost <=> missing = 0 and parked-lost = 0)")
+    out.append(f"Parked criticals with valid identity and no HazardEvent (lost, counted bad): "
+               f"{result['lost_parked_criticals']}")
     sli = result["sli"]
     out.append(f"SLI                  : {'n/a' if sli is None else f'{sli:.4f}'} (target {result['slo_target']:.0%})")
     if result["n"]:
@@ -261,6 +302,12 @@ def render(result):
         lat = "-" if r["latency_s"] is None else f"{r['latency_s']:.3f}"
         out.append(f"{r['hazard_id']:<37} {str(r['source_ref_id']):<15} {str(r['station_id']):<22} "
                    f"{r['fetched_at']:<25} {str(r['received_at'] or '-'):<25} {lat:>9}  {r['cls']:<8} {r['receipts']}")
+    if result["lost_parked"]:
+        out.append("")
+        out.append("Lost parked criticals:")
+        for p in result["lost_parked"]:
+            out.append(f"  {str(p.get('observation_id')):<15} {str(p.get('station_id')):<22} "
+                       f"{str(p.get('received_at')):<32} {str(p.get('reason'))[:100]}")
     out.append("")
     out.append("Checks:")
     for c in result["checks"]:
@@ -295,6 +342,7 @@ def decode_parked(rows):
                 "critical": it.get("critical"),
                 "observation_id": it.get("observation_id"),
                 "station_id": it.get("station_id"),
+                "observed_at": it.get("observed_at"),
             })
     return out
 

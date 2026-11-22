@@ -31,6 +31,13 @@ def receipt(hid, received_at, fetched_at=None):
     return r
 
 
+def parked_hex(observation_id, station_id="stn-a", observed_at="2026-11-22T10:04:58Z", critical=True):
+    item = {"station_id": station_id, "observed_at": observed_at, "critical": critical}
+    if observation_id is not None:
+        item["observation_id"] = observation_id
+    return json.dumps(item).encode().hex()
+
+
 def run(events, receipts, pages=CLEAN_PAGES, evidence=ALL_EVIDENCE, parked=None):
     return p5_slo.score(events, receipts, T0, T1, pages=pages, evidence_present=evidence, parked=parked)
 
@@ -154,15 +161,48 @@ class ScoreTest(unittest.TestCase):
         events = [event("a", "2026-11-22T10:05:00.000Z", ref="obs-1")]
         receipts = [receipt("a", "2026-11-22T10:05:01.000Z")]
         parked = p5_slo.decode_parked([
-            {"message_id": "m1", "reason": "contract_violation",
-             "payload_hex": json.dumps({"observation_id": "obs-9", "critical": True,
-                                        "station_id": "stn-unknown-99"}).encode().hex()},
-            {"message_id": "m2", "reason": "contract_violation",  # unverified alert, also stored
-             "payload_hex": json.dumps({"observation_id": "obs-1", "critical": True}).encode().hex()},
-            {"message_id": "m3", "reason": "contract_violation", "payload_hex": "7b7b"},  # not JSON
+            {"message_id": "m1", "received_at": "2026-11-22 10:05:00.2+00",
+             "reason": 'contract_violation: obs-9: station_id "stn-unknown-99" tidak ada di /v1/stations',
+             "payload_hex": parked_hex(observation_id="obs-9", station_id="stn-unknown-99")},
+            {"message_id": "m2", "reason": "contract_violation: obs-1: wave_height_m -1 di luar 0..30",
+             # unverified alert: parked and also stored
+             "payload_hex": parked_hex(observation_id="obs-1")},
+            {"message_id": "m3", "reason": "contract_violation: field wajib observation_id tidak ada",
+             "payload_hex": parked_hex(observation_id=None)},
+            {"message_id": "m4", "reason": "contract_violation: obs-4: field observed_at harus waktu RFC 3339",
+             "payload_hex": parked_hex(observation_id="obs-4", observed_at="22/11/2026")},
+            {"message_id": "m5", "reason": "contract_violation", "payload_hex": "7b7b"},  # not JSON
         ])
         r = run(events, receipts, parked=parked)
-        self.assertEqual(r["undeliverable_parked_criticals"], 1)
+        self.assertEqual(r["undeliverable_parked_criticals"], 3)
+        self.assertEqual(r["lost_parked_criticals"], 0)
+        self.assertEqual(r["verdict"], "PASS")
+
+    def test_parked_critical_with_valid_identity_is_lost_and_fails(self):
+        events = [event("a", "2026-11-22T10:05:00.000Z", ref="obs-1")]
+        receipts = [receipt("a", "2026-11-22T10:05:01.000Z")]
+        parked = p5_slo.decode_parked([
+            {"message_id": "m1", "received_at": "2026-11-22 10:06:00.5+00",
+             "reason": "store_rejected: 23514 check constraint", "payload_hex": parked_hex(observation_id="obs-2")},
+        ])
+        r = run(events, receipts, parked=parked)
+        self.assertEqual((r["missing"], r["lost_parked_criticals"]), (0, 1))
+        self.assertEqual(r["bad"], 1)
+        self.assertAlmostEqual(r["sli"], 0.5)
+        self.assertEqual(r["verdict"], "FAIL")
+        self.assertIn("obs-2", p5_slo.render(r))
+
+    def test_parked_criticals_outside_window_are_ignored(self):
+        events = [event("a", "2026-11-22T10:05:00.000Z", ref="obs-1")]
+        receipts = [receipt("a", "2026-11-22T10:05:01.000Z")]
+        parked = p5_slo.decode_parked([
+            {"message_id": "m1", "received_at": "2026-11-22T09:58:00Z", "reason": "store_rejected: x",
+             "payload_hex": parked_hex(observation_id="obs-2")},
+            {"message_id": "m2", "received_at": "2026-11-22T10:21:30Z", "reason": "store_rejected: x",
+             "payload_hex": parked_hex(observation_id="obs-3")},
+        ])
+        r = run(events, receipts, parked=parked)
+        self.assertEqual(r["lost_parked_criticals"], 0)
         self.assertEqual(r["verdict"], "PASS")
 
     def test_render_mentions_verdict_and_counts(self):
