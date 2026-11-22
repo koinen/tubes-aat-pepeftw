@@ -29,7 +29,7 @@ PVMBG_ADMIN_KEY="${PVMBG_ADMIN_KEY:-$(env_value PVMBG_ADMIN_KEY)}"
 
 EVIDENCE_DIR="evidence/m2-p3"
 mkdir -p "$EVIDENCE_DIR"
-LOG="$EVIDENCE_DIR/p3-replay-$(date -u +%Y%m%dT%H%M%SZ)$($KILL_LEADER && echo -kill-leader).log"
+LOG="$EVIDENCE_DIR/p3-replay-$(date -u +%Y%m%dT%H%M%SZ)$($KILL_LEADER && echo -kill-leader || true).log"
 exec > >(tee "$LOG") 2>&1
 
 step() { printf '\n== %s ==\n' "$*"; }
