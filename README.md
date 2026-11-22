@@ -204,10 +204,10 @@ Cluster demo adalah k3s `v1.37.2+k3s1` pada VM VirtualBox (Debian, kernel terpis
 
 | Node | VM | Host fisik | CPU host | RAM host | Peran |
 |---|---|---|---|---|---|
-| `node-a` | 2 vCPU, RAM 3 GB | Laptop Peter | AMD Ryzen 7 5800HS, 8 core 16 thread | 15,4 GB | control plane dan worker |
-| `node-b` | 2 vCPU, RAM 2,5 GB | Laptop Allen | [isi CPU] | [isi RAM] | worker |
-| `node-d` | 2 vCPU, RAM 2,5 GB | Laptop Allen | [isi CPU] | [isi RAM] | worker |
-| `node-e` | 2 vCPU, RAM 2,5 GB | Laptop David | [isi CPU] | [isi RAM] | worker |
+| `node-a` | 2 vCPU, RAM 3 GB | Laptop Peter (ASUS VivoBook M1403QA) | AMD Ryzen 7 5800HS, 8 core 16 thread | 15,4 GB | control plane dan worker |
+| `node-b` | 2 vCPU, RAM 2,5 GB | Laptop Allen (Lenovo IdeaPad Gaming 3) | AMD Ryzen 5 7535HS | 15,2 GB | worker |
+| `node-d` | 2 vCPU, RAM 2,5 GB | Laptop Allen (Lenovo IdeaPad Gaming 3) | AMD Ryzen 5 7535HS | 15,2 GB | worker |
+| `node-e` | 2 vCPU, RAM 2,5 GB | Laptop David (MSI Katana GF66 12UE) | Intel Core i7-12700H, 14 core 20 thread | 15,7 GB | worker |
 
 `node-c` (laptop David) dipakai pada awal pengujian, lalu dimatikan dan dihapus pada uji kehilangan node P1. `node-e` menggantikannya. Skenario mematikan node hanya dikenakan pada worker, bukan `node-a`.
 
@@ -330,11 +330,14 @@ Katalog sintetis dibuat dengan `go run ./tools/catalog-gen -n 20000 > katalog.cs
 
 | Butir | Skenario | Perintah |
 |---|---|---|
-| K1 | Hanya leader yang menarik data | `kubectl -n sistem-informasi-kebencanaan-bnpb get lease aggregator-leader -o jsonpath='{.spec.holderIdentity}'`, lalu bandingkan log permintaan `bmkg-mock` dan `pvmbg-mock` |
-| K2 | Leader mati, leader baru terpilih | `kubectl -n sistem-informasi-kebencanaan-bnpb delete pod <pod leader>` lalu cek Lease lagi, atau `/app run practice kill-leader` |
-| K3 | Jam node bergeser | `kubectl exec -n tester-agent daemonset/tester-agent -- /app run practice clock-skew` |
-| K4 | Leader membeku | Jeda VM leader di VirtualBox (Pause) lalu lanjutkan, pantau log `leader_lost` dan epoch *fencing* |
-| [ISI] | [ISI skenario P2 lain] | [ISI perintah] |
+| Persiapan | Konteks, penempatan pod aggregator, Lease, dan epoch *fencing* | `bash scripts/demo/m2/p2.sh preflight` |
+| K1 | Hanya leader yang menarik dan mengirim data | `bash scripts/demo/m2/p2.sh leader`, `bash scripts/demo/m2/p2.sh workers`, `bash scripts/demo/m2/p2.sh relay` |
+| K1 | Tidak ada HazardEvent ganda | `bash scripts/demo/m2/p2.sh duplicates` |
+| K2 | Leader mati, leader baru terpilih dalam 60 detik | `CONFIRM=yes bash scripts/demo/m2/p2.sh kill-leader`, atau `--hard` untuk hapus paksa tanpa melepas Lease |
+| K3 | Jam node bergeser | `CONFIRM=yes bash scripts/demo/m2/p2.sh clock-skew clock-skew` |
+| K4 | Leader membeku, leader lama ditolak oleh *fencing* | Jeda VM leader di VirtualBox (Pause, hanya di VM) lalu lanjutkan, kemudian `bash scripts/demo/m2/p2.sh fence-log` |
+
+Alur lengkap ada di [scripts/demo/m2/P2-P4-RUNBOOK.md](scripts/demo/m2/P2-P4-RUNBOOK.md). Log tersimpan di `evidence/m2-p2/`.
 
 ### P3: Pesan beracun dan replay
 
@@ -349,36 +352,42 @@ Di kind, arahkan skrip ke port host dengan `BASE_URL=http://localhost:8080 AUTH_
 
 ### P4: Feed satelit
 
-| Butir | Skenario | Perintah |
-|---|---|---|
-| [ISI] | [ISI skenario P4] | [ISI perintah] |
+| Skenario | Perintah |
+|---|---|
+| Offset feed, jumlah deteksi, kebakaran, dan duplikat | `bash scripts/demo/m2/p4.sh status` |
+| Feed diproses langsung (status tiap 5 detik) | `bash scripts/demo/m2/p4.sh watch 60` |
+| Metrik satelit dari pod leader (lag, deteksi terlambat, latensi) | `bash scripts/demo/m2/p4.sh metrics` |
+| Celah offset per pod aggregator | `bash scripts/demo/m2/p4.sh gaps` |
+| Leader *crash* saat feed berjalan, hasil sama tanpa deteksi hilang atau ganda | `CONFIRM=yes bash scripts/demo/m2/p4.sh crash` |
+
+Konsumer satelit hanya berjalan bila `SATELLITE_ENABLED=true` di ConfigMap aggregator. Jalankan `p4.sh status` dua kali sebelum `crash` untuk memastikan offset bertambah. Log tersimpan di `evidence/m2-p4/`.
 
 ### P5: Game day
 
-P5 diukur di cluster VM oleh dua orang: *operator* yang menjalankan pengukuran dan *injector* yang memilih gangguan secara rahasia. Alur lengkap ada di [scripts/demo/m2/P5-RUNBOOK.md](scripts/demo/m2/P5-RUNBOOK.md). Satu putaran memakan waktu sekitar 70 menit.
+P5 diukur di cluster VM. *Operator* menjalankan pengukuran, sedangkan gangguan diberikan oleh *injector* otomatis (`p5.sh inject-auto`) yang memilih rencana acak dan baru membukanya setelah selesai. Alur lengkap ada di [scripts/demo/m2/P5-RUNBOOK.md](scripts/demo/m2/P5-RUNBOOK.md). Satu putaran memakan waktu sekitar 80 menit.
 
 ```
- S-10   preflight
- S      cleanup-sensor-history (jam mulai)
- S+3    warm-up K3, K4, K5
- S+25   T0: game day, injector memberi gangguan
- S+45   T1: game day selesai
- S+47   cutoff, collect
+ preflight (~10 min)
+   └─> warm-up K3, K4, K5 (~25 min)
+         └─> cleanup dan catatan awal (~5 min)
+               └─> gameday-start: S = T0, sensor menyala, injector berjalan
+                     └─> T1 = T0+30, game day selesai
+                           └─> C = T1+2, collect
 ```
 
 | Langkah | Perintah |
 |---|---|
 | Preflight | `scripts/demo/m2/p5.sh preflight` |
-| Mulai jam S | `CONFIRM=yes scripts/demo/m2/p5.sh cleanup-sensor-history` lalu `scripts/demo/m2/p5.sh offsets start` |
 | Beban K3 dan K5 | `scripts/demo/m2/p5.sh k6 k3`, `scripts/demo/m2/p5.sh k6 k5` |
 | Sampel K4 | `scripts/demo/m2/p5.sh sample 480` |
-| Gangguan sensor | `CONFIRM=yes scripts/demo/m2/p5.sh fault-sensor on`, lalu `off` |
-| Gangguan PVMBG | `CONFIRM=yes scripts/demo/m2/p5.sh pvmbg-outage on hang`, lalu `off` |
-| Gangguan node (injector) | `vagrant halt -f node-b`, `/app run practice partition`, atau `/app run practice kill-leader` |
+| Cleanup dan catatan awal | `CONFIRM=yes scripts/demo/m2/p5.sh cleanup-sensor-history`, `scripts/demo/m2/p5.sh offsets start`, `scripts/demo/m2/p5.sh clocks T0` |
+| Mulai game day dengan injector otomatis | `CONFIRM=yes scripts/demo/m2/p5.sh gameday-start 30` |
+| Mulai game day dengan injector manusia | `INJECT=hand CONFIRM=yes scripts/demo/m2/p5.sh gameday-start 30` |
+| Gangguan manual | `CONFIRM=yes scripts/demo/m2/p5.sh pvmbg-outage on hang`, `CONFIRM=yes scripts/demo/m2/p5.sh fault-sensor on`, `/app run practice partition`, `/app run practice kill-leader`, atau mematikan VM |
+| Akhir game day | `scripts/demo/m2/p5.sh clocks T1`, `scripts/demo/m2/p5.sh offsets end`, `scripts/demo/m2/p5.sh tester-logs` |
 | Penilaian K1, K2, K8 | `scripts/demo/m2/p5.sh collect <T0> <T1>` |
-| Log Tester Agent K6 | `scripts/demo/m2/p5.sh tester-logs` |
 
-Putaran latihan memakai `PREFIX=practice-` (bawaan). Putaran ujian memakai `PREFIX=exam-` dan overlay `vm-exam`.
+Setiap putaran latihan memakai `PREFIX` baru yang diawali `practice`, misalnya `practice-r2-`, karena `inject-auto` menolak menimpa rencana lama. Putaran ujian memakai `PREFIX=exam-` dan overlay `vm-exam`.
 
 ### Bonus: node di host fisik berbeda
 
