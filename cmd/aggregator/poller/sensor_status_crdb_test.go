@@ -81,7 +81,7 @@ func TestSensorStoredReadsWhileProbeIsBlocked(t *testing.T) {
 
 	clock := time.Now().UTC()
 	p := New(Config{SensorPantaiURL: upstream.URL, SensorPantaiTimeout: 8 * time.Second}, Deps{
-		Hazards: repo, Existing: repo, Unprocessed: repo, Positions: &sensorStore{}, Statuses: repo,
+		Hazards: repo, Batch: repo, Unprocessed: repo, Positions: &sensorStore{}, Statuses: repo,
 		Log: log, Now: func() time.Time { return clock },
 	})
 	r := p.runners[slices.IndexFunc(p.runners, func(r *runner) bool { return r.source == model.SourceSensorPantai })]

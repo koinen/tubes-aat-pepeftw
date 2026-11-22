@@ -155,3 +155,49 @@ func TestSensorStreamPositionRoundTripsBesideTimeCursors(t *testing.T) {
 		t.Errorf("PVMBG cursor %v found=%v err=%v, want %v", got, found, err, since)
 	}
 }
+
+// A batch is one transaction: new rows get exactly one outbox event, a row already stored or repeated
+// inside the batch is UNCHANGED and gets none.
+func TestSensorBatchStoresNewRowsOnceAndReportsTheRest(t *testing.T) {
+	repo, pool := cockroach(t)
+	ctx := context.Background()
+	run := "crdb-" + uuid.NewString()[:8]
+	stored := coastalHazard(t, run+"-stored", `,"critical":false`)
+	if _, err := repo.SaveHazard(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	a := coastalHazard(t, run+"-a", `,"critical":true`)
+	b := coastalHazard(t, run+"-b", `,"critical":false`)
+
+	outcomes, err := repo.SaveHazards(ctx, []model.HazardEvent{a, stored, b, a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []repository.SaveOutcome{repository.OutcomeCreated, repository.OutcomeUnchanged,
+		repository.OutcomeCreated, repository.OutcomeUnchanged}
+	if len(outcomes) != len(want) {
+		t.Fatalf("outcomes %v, want %v", outcomes, want)
+	}
+	for i := range want {
+		if outcomes[i] != want[i] {
+			t.Errorf("outcome[%d] = %s, want %s", i, outcomes[i], want[i])
+		}
+	}
+	for _, h := range []model.HazardEvent{a, b, stored} {
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox WHERE hazard_id = $1`, h.HazardID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("%s has %d outbox rows, want 1", h.SourceRefID, n)
+		}
+	}
+
+	got, err := repo.GetHazards(ctx, []string{a.HazardID, stored.HazardID, uuid.NewString()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !mapper.SameObservation(got[a.HazardID], a) || !mapper.SameObservation(got[stored.HazardID], stored) {
+		t.Errorf("GetHazards returned %d rows %v, want a and stored", len(got), got)
+	}
+}

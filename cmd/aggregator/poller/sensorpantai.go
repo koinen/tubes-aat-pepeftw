@@ -24,6 +24,8 @@ const (
 
 	sensorPageLimit = 1000
 	sensorMaxPages  = 20
+	// sensorBatchSize is how many observations one transaction writes.
+	sensorBatchSize = 200
 
 	// stationsMaxAge is how long the station list is used before it is fetched again.
 	stationsMaxAge = 5 * time.Minute
@@ -34,7 +36,7 @@ const (
 type sensorPantaiPoller struct {
 	f         *fetcher
 	hazards   repository.HazardWriter
-	existing  repository.HazardGetter
+	batch     repository.HazardBatchStore
 	dlq       repository.UnprocessedWriter
 	positions repository.StreamCursorRepository
 	log       *slog.Logger
@@ -42,6 +44,7 @@ type sensorPantaiPoller struct {
 
 	pageLimit int
 	maxPages  int
+	batchSize int
 
 	stations           map[string]mapper.Station
 	stationsLoadedAt   time.Time // last successful fetch
@@ -56,8 +59,8 @@ type sensorPantaiPoller struct {
 
 func newSensorPantaiPoller(f *fetcher, d Deps) *sensorPantaiPoller {
 	return &sensorPantaiPoller{
-		f: f, hazards: d.Hazards, existing: d.Existing, dlq: d.Unprocessed, positions: d.Positions,
-		log: d.Log, now: d.Now, pageLimit: sensorPageLimit, maxPages: sensorMaxPages,
+		f: f, hazards: d.Hazards, batch: d.Batch, dlq: d.Unprocessed, positions: d.Positions,
+		log: d.Log, now: d.Now, pageLimit: sensorPageLimit, maxPages: sensorMaxPages, batchSize: sensorBatchSize,
 		cadences: make(map[string]*stationCadence),
 	}
 }
@@ -150,9 +153,15 @@ func (p *sensorPantaiPoller) cycle(ctx context.Context) (result pollResult) {
 			}
 		}
 	}
-	// Criticals go first so their outbox rows exist before a large backlog's.
-	for _, m := range append(criticals, rest...) {
-		if err := p.write(ctx, rec, m); err != nil {
+	// Criticals go first, in their own transactions, so their outbox rows exist before a large backlog's.
+	var batches [][]mapped
+	for _, ms := range [][]mapped{criticals, rest} {
+		for start := 0; start < len(ms); start += p.batchSize {
+			batches = append(batches, ms[start:min(start+p.batchSize, len(ms))])
+		}
+	}
+	for _, b := range batches {
+		if err := p.writeBatch(ctx, rec, b); err != nil {
 			result.localErr = err
 			return result
 		}
@@ -172,6 +181,70 @@ func (p *sensorPantaiPoller) cycle(ctx context.Context) (result pollResult) {
 type mapped struct {
 	raw json.RawMessage
 	mapper.CoastalResult
+}
+
+// writeBatch stores ms in one transaction, then parks their violations and id conflicts. A batch the
+// database rejects is written again one row at a time, so only the bad row is parked. Any other
+// failure (store unavailable, lost leadership) stops the cycle before the cursor moves, and the next
+// poll writes the same observations again.
+func (p *sensorPantaiPoller) writeBatch(ctx context.Context, rec *recorder, ms []mapped) error {
+	var hs []model.HazardEvent
+	for _, m := range ms {
+		if m.Hazard != nil {
+			hs = append(hs, *m.Hazard)
+		}
+	}
+	outcomes, err := p.batch.SaveHazards(ctx, hs)
+	if errors.Is(err, repository.ErrRejected) {
+		p.log.Warn("sensor_batch_rejected", "correlation_id", correlation.From(ctx), "rows", len(ms), "error", err.Error())
+		for _, m := range ms {
+			if err := p.write(ctx, rec, m); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(outcomes) != len(hs) {
+		return fmt.Errorf("save %d hazards: store returned %d outcomes", len(hs), len(outcomes))
+	}
+	var unchanged []string
+	for i, h := range hs {
+		if outcomes[i] == repository.OutcomeUnchanged {
+			unchanged = append(unchanged, h.HazardID)
+		}
+	}
+	stored := p.storedAmong(ctx, unchanged)
+	i := 0
+	for _, m := range ms {
+		if m.Hazard != nil {
+			if s, ok := stored[m.Hazard.HazardID]; ok && outcomes[i] == repository.OutcomeUnchanged &&
+				!mapper.SameObservation(s, *m.Hazard) {
+				rec.park(ctx, EndpointObservations, m.raw, mapper.IDConflict(m.Hazard.SourceRefID))
+			}
+			i++
+		}
+		if m.Violation != nil {
+			rec.park(ctx, EndpointObservations, m.raw, m.Violation)
+		}
+	}
+	return nil
+}
+
+// storedAmong reads the stored rows for ids. A failed read is logged and treated as no conflict, so
+// it never holds up the cycle.
+func (p *sensorPantaiPoller) storedAmong(ctx context.Context, ids []string) map[string]model.HazardEvent {
+	if len(ids) == 0 {
+		return nil
+	}
+	stored, err := p.batch.GetHazards(ctx, ids)
+	if err != nil {
+		p.log.Warn("id_conflict_check_failed", "correlation_id", correlation.From(ctx), "rows", len(ids), "error", err.Error())
+		return nil
+	}
+	return stored
 }
 
 // write stores one mapped observation: its HazardEvent, its parked violation, or both for an unverified
@@ -197,7 +270,7 @@ func (p *sensorPantaiPoller) write(ctx context.Context, rec *recorder, m mapped)
 // conflicts reports whether h's observation_id is already stored with different values. A failed
 // read is logged and treated as no conflict, so it never holds up the cycle.
 func (p *sensorPantaiPoller) conflicts(ctx context.Context, h model.HazardEvent) bool {
-	stored, err := p.existing.GetHazard(ctx, h.HazardID)
+	stored, err := p.batch.GetHazard(ctx, h.HazardID)
 	if err != nil {
 		p.log.Warn("id_conflict_check_failed", "correlation_id", correlation.From(ctx), "hazard_id", h.HazardID,
 			"source_ref_id", h.SourceRefID, "error", err.Error())

@@ -21,7 +21,7 @@ type Deps struct {
 	Now         func() time.Time
 
 	// Used by the Sensor Pantai poller.
-	Existing  repository.HazardGetter
+	Batch     repository.HazardBatchStore
 	Positions repository.StreamCursorRepository
 }
 

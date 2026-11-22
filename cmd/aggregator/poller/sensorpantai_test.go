@@ -136,6 +136,9 @@ type sensorStore struct {
 	saveErr     error
 	positionErr error
 	status      model.SourceStatus
+	rejectRef   string // SaveHazard and any batch holding this source_ref_id fail with ErrRejected
+	singles     int    // SaveHazard calls
+	batches     int    // SaveHazards calls
 }
 
 func (s *sensorStore) SaveSourceStatus(_ context.Context, status model.SourceStatus) error {
@@ -148,8 +151,44 @@ func (s *sensorStore) ListSourceStatus(context.Context) ([]model.SourceStatus, e
 }
 
 func (s *sensorStore) SaveHazard(_ context.Context, h model.HazardEvent) (repository.SaveOutcome, error) {
+	s.singles++
+	return s.save(h)
+}
+
+func (s *sensorStore) SaveHazards(_ context.Context, hs []model.HazardEvent) ([]repository.SaveOutcome, error) {
+	s.batches++
+	for _, h := range hs {
+		if s.saveErr == nil && h.SourceRefID == s.rejectRef {
+			return nil, fmt.Errorf("save hazards: %w: check constraint", repository.ErrRejected)
+		}
+	}
+	var out []repository.SaveOutcome
+	for _, h := range hs {
+		o, err := s.save(h)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, nil
+}
+
+func (s *sensorStore) GetHazards(ctx context.Context, ids []string) (map[string]model.HazardEvent, error) {
+	out := map[string]model.HazardEvent{}
+	for _, id := range ids {
+		if h, err := s.GetHazard(ctx, id); err == nil {
+			out[id] = h
+		}
+	}
+	return out, nil
+}
+
+func (s *sensorStore) save(h model.HazardEvent) (repository.SaveOutcome, error) {
 	if s.saveErr != nil {
 		return "", s.saveErr
+	}
+	if h.SourceRefID == s.rejectRef {
+		return "", fmt.Errorf("save hazard: %w: check constraint", repository.ErrRejected)
 	}
 	for _, x := range s.saved {
 		if x.HazardID == h.HazardID {
@@ -219,7 +258,7 @@ func newSensorHarness(t *testing.T) *sensorHarness {
 	}
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	f := newFetcher(model.SourceSensorPantai, srv.URL, time.Second, func(*http.Request) {}, log, now)
-	deps := Deps{Hazards: h.store, Existing: h.store, Unprocessed: h.store, Positions: h.store, Log: log, Now: now}
+	deps := Deps{Hazards: h.store, Batch: h.store, Unprocessed: h.store, Positions: h.store, Log: log, Now: now}
 	h.poller = newSensorPantaiPoller(f, deps)
 	return h
 }
@@ -272,7 +311,7 @@ func sensorRunner(t *testing.T) (*fakeSensor, *sensorStore, func(time.Duration))
 	clock := sensorStart
 	p := New(Config{SensorPantaiURL: srv.URL, SensorPantaiTimeout: time.Second,
 		BreakerFailures: 3, BreakerOpenFor: 15 * time.Second}, Deps{
-		Hazards: store, Existing: store, Unprocessed: store, Positions: store, Statuses: store,
+		Hazards: store, Batch: store, Unprocessed: store, Positions: store, Statuses: store,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return clock },
 	})
 	for _, r := range p.runners {
@@ -508,7 +547,7 @@ func TestSensorBlockedRequestDoesNotBlockBMKG(t *testing.T) {
 	p := New(Config{BMKGURL: bmkg.URL, PVMBGURL: pvmbg.URL, SensorPantaiURL: sensor.URL,
 		BMKGTimeout: 5 * time.Second, PVMBGTimeout: time.Second, SensorPantaiTimeout: 5 * time.Second,
 		PollInterval: time.Hour, SensorPantaiPollInterval: time.Hour, BreakerFailures: 3}, Deps{
-		Hazards: store, Existing: store, Unprocessed: store, Positions: store, Statuses: store, Cursors: store, Volcanoes: store,
+		Hazards: store, Batch: store, Unprocessed: store, Positions: store, Statuses: store, Cursors: store, Volcanoes: store,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -762,17 +801,83 @@ func TestSensorFailedWriteKeepsThePosition(t *testing.T) {
 	}
 }
 
-func TestSensorUnavailableStoreParksForRetryAndMovesOn(t *testing.T) {
+// An unavailable store fails the cycle before the cursor moves, so the next poll writes the same
+// observations again. Nothing is parked: the retry queue lives in the same database.
+func TestSensorUnavailableStoreKeepsThePositionAndRetriesNextPoll(t *testing.T) {
 	h := newSensorHarness(t)
-	h.store.saveErr = fmt.Errorf("save hazard: %w: range unavailable", repository.ErrUnavailable)
+	h.mustCycle()
+	before := h.store.position
+	h.store.saveErr = fmt.Errorf("save hazards: %w: range unavailable", repository.ErrUnavailable)
 	h.sensor.add(observation(0, `{"critical":true}`))
 
-	h.mustCycle()
-	if len(h.store.unprocessed) != 1 || h.store.unprocessed[0].Status != model.StatusRetrying {
-		t.Fatalf("unprocessed %+v, want the critical queued for retry", h.store.unprocessed)
+	if err := h.cycle(); err == nil {
+		t.Fatal("want an unavailable store to fail the cycle")
 	}
-	if h.store.position.Cursor != "at:1" {
-		t.Errorf("position %+v, want it moved past the retried observation", h.store.position)
+	if h.store.position != before || len(h.store.unprocessed) != 0 {
+		t.Fatalf("position %+v, parked %d; want the position kept at %+v and nothing parked",
+			h.store.position, len(h.store.unprocessed), before)
+	}
+	h.store.saveErr = nil
+	h.mustCycle()
+	if got := strings.Join(h.store.refs(), ","); got != "obs-000000" || h.store.position.Cursor != "at:1" {
+		t.Errorf("after recovery saved %s at %+v, want obs-000000 and the cursor past it", got, h.store.position)
+	}
+}
+
+// A backlog of thousands of observations (the sensor at 60x after a slow cycle) must cost a few
+// transactions, not one per observation: at 3-5 s per transaction on a slow cluster, per-row writes
+// made one cycle last over an hour (P5 practice game day, 2026-11-22).
+func TestSensorBacklogIsWrittenInBatchesWithCriticalsFirst(t *testing.T) {
+	h := newSensorHarness(t)
+	h.poller.batchSize = 200
+	h.sensor.generatedAt = sensorStart.Add(2 * time.Hour) // after the last observed_at
+	for i := range 450 {
+		extra := ""
+		if i == 333 {
+			extra = `{"critical":true}`
+		}
+		h.sensor.add(observation(i, extra))
+	}
+	h.mustCycle()
+
+	if len(h.store.saved) != 450 || h.saved(0).SourceRefID != "obs-000333" {
+		t.Fatalf("saved %d, first %s; want all 450 with the critical first", len(h.store.saved), h.saved(0).SourceRefID)
+	}
+	// One batch for the critical, then ceil(449/200) for the rest.
+	if h.store.batches != 4 || h.store.singles != 0 {
+		t.Errorf("%d batches and %d single writes, want 4 batches and none", h.store.batches, h.store.singles)
+	}
+}
+
+func TestSensorManyCriticalsAreSplitIntoBatchesToo(t *testing.T) {
+	h := newSensorHarness(t)
+	h.poller.batchSize = 2
+	for i := range 5 {
+		h.sensor.add(observation(i, `{"critical":true}`))
+	}
+	h.sensor.add(observation(5, ""))
+	h.mustCycle()
+	if len(h.store.saved) != 6 || h.store.batches != 4 {
+		t.Errorf("saved %d in %d batches, want 6 in 4 (criticals 2+2+1, then the rest)", len(h.store.saved), h.store.batches)
+	}
+}
+
+// A batch the database rejects is written again row by row, so only the bad row is parked.
+func TestSensorRejectedBatchFallsBackToRowsAndParksOnlyTheBadOne(t *testing.T) {
+	h := newSensorHarness(t)
+	h.store.rejectRef = "obs-000001"
+	h.sensor.add(observation(0, ""), observation(1, ""), observation(2, ""))
+	h.mustCycle()
+
+	if got := strings.Join(h.store.refs(), ","); got != "obs-000000,obs-000002" {
+		t.Fatalf("saved %s, want obs-000000,obs-000002", got)
+	}
+	if len(h.store.unprocessed) != 1 || h.store.unprocessed[0].SourceRefID != "obs-000001" ||
+		h.store.unprocessed[0].Status != model.StatusParked {
+		t.Fatalf("unprocessed %+v, want obs-000001 parked", h.store.unprocessed)
+	}
+	if h.store.position.Cursor != "at:3" {
+		t.Errorf("position %+v, want it past the batch", h.store.position)
 	}
 }
 
