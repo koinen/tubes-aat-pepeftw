@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M2 P3 demo (C5): parked PVMBG messages are replayed after the schema change is declared.
+# M2 P3 demo: parked PVMBG messages are replayed after the schema change is declared.
 #
 #   1. The mock switches to breaking schema versions 3, 4 and 5; the reports are parked.
 #   2. The rules go into the aggregator ConfigMap and the aggregator rolls out ("sistem disesuaikan").

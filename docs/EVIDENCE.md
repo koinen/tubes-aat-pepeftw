@@ -1,6 +1,6 @@
 # Bukti Milestone 2
 
-Indeks seluruh tangkapan layar di `docs/screenshot` dan hasil teks di `docs/results`, satu kalimat per berkas. Kolom Butir merujuk ke checker M2: K1 sampai K14 untuk platform, dan K1 sampai K7 per problem.
+Indeks seluruh tangkapan layar di `docs/screenshot` dan hasil teks di `docs/results`, satu kalimat per berkas. Kolom Butir merujuk ke kriteria M2: K1 sampai K14 untuk platform, dan K1 sampai K7 per problem.
 
 Konvensi nama berkas: `<masalah>-<butir>-<isi>.png`. Nama pemilik hanya dipakai bila gambar menunjukkan laptop orang tertentu.
 

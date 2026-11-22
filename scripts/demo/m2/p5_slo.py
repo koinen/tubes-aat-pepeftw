@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C12 measurement helpers for P5: critical-alert SLO scoring, audit fetches, and K4 sampling.
+"""Measurement helpers for P5: critical-alert SLO scoring, audit fetches, and K4 sampling.
 
 Subcommands:
   fetch-audit        page /internal/audit/events for SENSOR_PANTAI into a JSONL file
@@ -8,7 +8,7 @@ Subcommands:
   sample             poll client-api endpoints every few seconds and log status and time_total
   sensor-rate        count Sensor Pantai HTTP calls per second from aggregator JSON logs (stdin)
 
-Scoring rules are the C12 decisions in docs/design-decisions.md (P5 decision record).
+Scoring rules are described in scripts/demo/m2/P5-RUNBOOK.md.
 Standard library only.
 """
 

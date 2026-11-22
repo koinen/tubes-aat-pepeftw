@@ -141,7 +141,7 @@ bash scripts/vm/fetch-kubeconfig.sh <ip-tailnet-node-a>
 ```
 
 ```bash
-export KUBECONFIG=~/.kube/bnpb-vm.yaml && kubectl get nodes -o wide
+export KUBECONFIG="$(cygpath -m ~/.kube/bnpb-vm.yaml)" && kubectl get nodes -o wide
 ```
 
 6. Sinkronkan jam setiap VM. CockroachDB menolak node yang jamnya bergeser.
@@ -159,7 +159,7 @@ docker login ghcr.io
 ```
 
 ```bash
-bash scripts/deploy.sh --overlay vm --registry ghcr.io/koinen/
+bash scripts/deploy.sh --overlay vm --registry ghcr.io/peterwongsoredjo/
 ```
 
 8. Pasang Tester Agent dari spesifikasi.
@@ -185,7 +185,7 @@ Untuk profil ujian Sensor Pantai, simpan kunci dari asisten di `secrets/pantai.k
 | Opsi | Fungsi |
 |---|---|
 | `--overlay <nama>` | Overlay di `deploy/overlays` (bawaan `dev`) |
-| `--registry <prefix>` | Push ke registry, misalnya `ghcr.io/koinen/`, bukan kind |
+| `--registry <prefix>` | Push ke registry, misalnya `ghcr.io/peterwongsoredjo/`, bukan kind |
 | `--tag <tag> --no-build` | Pakai image yang sudah ada |
 | `--only <service>` | Build ulang dan rollout satu service saja |
 | `--fresh` | Hapus namespace beserta datanya lalu deploy dari awal |
@@ -298,7 +298,7 @@ Spesifikasi API lengkap (OpenAPI dan AsyncAPI) ada di folder `api/`.
 
 ## 7. Memicu Skenario Pengujian
 
-Semua perintah dijalankan dari root repo di Git Bash, dengan `kubectl` menunjuk ke cluster yang benar. Di cluster VM jalankan `export KUBECONFIG=~/.kube/bnpb-vm.yaml` terlebih dahulu. Log hasil skrip M2 tersimpan di `evidence/` dan `docs/results/`.
+Semua perintah dijalankan dari root repo di Git Bash, dengan `kubectl` menunjuk ke cluster yang benar. Di cluster VM jalankan `export KUBECONFIG="$(cygpath -m ~/.kube/bnpb-vm.yaml)"` terlebih dahulu. Path harus berformat Windows (`C:/...`) karena `deploy.sh` mematikan konversi path Git Bash. Log hasil skrip M2 tersimpan di `evidence/` dan `docs/results/`.
 
 ### Tester Agent
 
@@ -652,7 +652,8 @@ docker-compose.yml
 | `port is already allocated` | Port 8080 sampai 8089 atau 9094 dipakai aplikasi lain. |
 | `auth` atau `client-api` terus *restart* | Kunci di `secrets/` belum dibuat. Jalankan `sh scripts/gen-auth-keys.sh`. |
 | Ada service yang mati setelah Docker *restart* | Jalankan `docker compose up -d`. |
-| `dial tcp 127.0.0.1:...: connection refused` saat `kubectl` | `kubectl` masih menunjuk ke kind. Jalankan `export KUBECONFIG=~/.kube/bnpb-vm.yaml`. |
+| `dial tcp 127.0.0.1:...: connection refused` saat `kubectl` | `kubectl` masih menunjuk ke kind. Jalankan `export KUBECONFIG="$(cygpath -m ~/.kube/bnpb-vm.yaml)"`. |
+| `dial tcp [::1]:8080` saat `deploy.sh` | `KUBECONFIG` berformat `~/...` tidak terbaca setelah `deploy.sh` mematikan konversi path. Pakai `export KUBECONFIG="$(cygpath -m ~/.kube/bnpb-vm.yaml)"`. |
 | `vagrant up` diam lama tanpa keluaran | Vagrant menunggu pilihan adapter *bridged*. Set `BRIDGE="<nama adapter>"` sebelum `vagrant up`. |
 | Node CockroachDB ditolak setelah VM dinyalakan ulang | Jam VM bergeser. Jalankan langkah sinkronisasi jam pada bagian 3.B.6. |
 | Skrip P5 menolak berjalan di kind | Disengaja. P5 hanya diukur di cluster VM. |

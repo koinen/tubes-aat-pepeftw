@@ -1,6 +1,6 @@
-# P5 game day runbook (C12)
+# P5 game day runbook
 
-Measures P5 K1–K8 on the VM cluster. The rules (window, scoring, pass criteria) are the C12 entries in the P5 decision record. All commands run from the repo root. Every cluster-changing command needs `CONFIRM=yes` and writes a UTC line to `docs/results/p5/<prefix>timeline.txt`.
+Measures P5 K1–K8 on the VM cluster. All commands run from the repo root. Every cluster-changing command needs `CONFIRM=yes` and writes a UTC line to `docs/results/p5/<prefix>timeline.txt`.
 
 **Roles.** The *operator* runs measurement and watches dashboards. The *injector* runs faults during the game-day window and keeps their choice and timing hidden. By default the injector is `p5.sh inject-auto`, started by `gameday-start`. It draws a random plan, logs only the plan's sha256 at T0, and reveals the plan at the end. A teammate may inject by hand instead (section 3). Between T0 and T1 nobody touches the system except through the injector's faults.
 
@@ -11,7 +11,7 @@ Measures P5 K1–K8 on the VM cluster. The rules (window, scoring, pass criteria
 ## 0. Before the clock starts (~10 min)
 
 ```bash
-export KUBECONFIG=~/.kube/bnpb-vm.yaml        # copy from Peter's laptop
+export KUBECONFIG="$(cygpath -m ~/.kube/bnpb-vm.yaml)"   # copy from Peter's laptop
 export NODE=<tailnet IP of node-a>            # NodePorts 30080/30084/30085/30082; default = kubeconfig host
 export PREFIX=practice-r2-
 scripts/demo/m2/p5.sh preflight               # context, nodes, pods, digests, sensor profile, iptables, endpoints
@@ -165,7 +165,7 @@ For each fault from `timeline.txt` and `c6-tester-agent.log`, record:
 - **Mitigation:** which mechanism acted, e.g. breaker open, failover, retries, DLQ;
 - **Recovery time.**
 
-Then list what to fix. If the notifier's or the poller leader's node was killed, note the delivery gap: the notifier is a single replica (C12 decision).
+Then list what to fix. If the notifier's or the poller leader's node was killed, note the delivery gap: the notifier is a single replica.
 
 ## File map (`docs/results/p5/`, prefixed)
 

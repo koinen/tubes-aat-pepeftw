@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M2 P3 K6 demo (C7): a field report that got 202 is never lost and is stored exactly once.
+# M2 P3 K6 demo: a field report that got 202 is never lost and is stored exactly once.
 #
 #   1. The aggregator is scaled to 0: 202 does not wait for it, only for Kafka (acks=all).
 #   2. About 30 reports go through client-api's NodePort. Mid-run one client-api pod and one Kafka

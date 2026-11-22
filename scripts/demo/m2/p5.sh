@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M2 P5 (C12) measurement and fault helpers for the VM cluster. Runbook: scripts/demo/m2/P5-RUNBOOK.md
+# M2 P5 measurement and fault helpers for the VM cluster. Runbook: scripts/demo/m2/P5-RUNBOOK.md
 #
 # Usage: scripts/demo/m2/p5.sh <command> [args]
 #
@@ -25,7 +25,7 @@
 #   config <KEY> <VALUE>      patch client-api-config and restart client-api (RATE_LIMIT_MAX, MAX_CONCURRENT_REQUESTS)
 #   config-restore            RATE_LIMIT_MAX=10, MAX_CONCURRENT_REQUESTS=200
 #   inject-auto [minutes]     hidden random fault plan run in the background (default 30 min, at least 20;
-#                             the C12 injector; KILL_VM, VBOX). gameday-start calls it.
+#                             the game-day injector; KILL_VM, VBOX). gameday-start calls it.
 #
 # Env: NS, OUT (default docs/results/p5), PREFIX (default practice-), NODE (NodePort host; default the
 #      kubeconfig server host), AUDIT_TOKEN / MEDIA_SECRET / LAPANGAN_SECRET / BNPB_SECRET / PVMBG_ADMIN_KEY
@@ -434,12 +434,12 @@ YAML
   return "${rc:-1}"
 }
 
-# ---- automatic injector (stands in for the teammate injector of C12) ----
+# ---- automatic injector (stands in for a teammate injector) ----
 VBOX="${VBOX:-/mnt/c/Program Files/Oracle/VirtualBox/VBoxManage.exe}"
 KILL_VM="${KILL_VM:-node-e}"
 
 # Writes a random plan, "<seconds after T0> <action>" per line. At least one fault is active from
-# T0+3 to T0+10 min (C12); every fault is cleared before T1, except the VM, which starts after T1.
+# T0+3 to T0+10 min, every fault is cleared before T1, except the VM, which starts after T1.
 inject_plan() {
   local win=$(( $1 * 60 )) menu anchor others name t d
   menu="pvmbg sensor partition kill-leader"

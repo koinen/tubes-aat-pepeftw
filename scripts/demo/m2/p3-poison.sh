@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M2 P3 K3 demo (C4): poison input at every entry point is parked, never crashes or blocks a service.
+# M2 P3 K3 demo: poison input at every entry point is parked, never crashes or blocks a service.
 #
 #   1. PVMBG mock POST /admin/corrupt serves one truncated, deep, invalid_utf8 and oversized (50 MB)
 #      response each. The poller parks each whole body as PVMBG and keeps polling.

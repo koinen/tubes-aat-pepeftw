@@ -1,4 +1,4 @@
-// M2 P5 (C12) load for K3 (other-source latency) and K5 (priority shedding). Run via scripts/demo/m2/p5.sh k6 <k3|k5>.
+// M2 P5 load for K3 (other-source latency) and K5 (priority shedding). Run via scripts/demo/m2/p5.sh k6 <k3|k5>.
 //
 // MODE=k3: READ_VUS bnpb-ops readers, alternating GET /hazards?type=SEISMIC (BMKG) and type=VOLCANIC (PVMBG).
 //          Thresholds: p95 < 300 ms per source (the M1 criterion stated in the README).

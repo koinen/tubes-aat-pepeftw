@@ -8,10 +8,10 @@ Panduan ini memindahkan sistem dari kind (pengembangan) ke cluster k3s di atas V
 |---|---|---|---|---|
 | `node-a` | control plane sekaligus worker | 3 GB | 2 | 20 GB |
 | `node-b` | worker | 2,5 GB | 2 | 20 GB |
-| `node-c` | worker | 2,5 GB | 2 | 20 GB |
+| `node-e` | worker | 2,5 GB | 2 | 20 GB |
 | `node-d` | worker | 2,5 GB | 2 | 20 GB |
 
-Empat node diperlukan agar setiap node CockroachDB memegang sebagian data saja dan cluster tetap bertahan saat satu node hilang. Skenario mematikan node hanya dikenakan pada `node-b` sampai `node-d`.
+Empat node diperlukan agar setiap node CockroachDB memegang sebagian data saja dan cluster tetap bertahan saat satu node hilang. Skenario mematikan node hanya dikenakan pada worker (`node-b`, `node-d`, dan `node-e`). Pada pengujian P1, `node-c` dipakai lalu dihapus dan digantikan `node-e`.
 
 VM boleh tersebar di beberapa laptop selama berada pada jaringan yang sama. Cara ini meringankan RAM tiap laptop dan memenuhi bonus node pada host fisik berbeda.
 
@@ -49,7 +49,7 @@ sudo bash k3s-server.sh
 
 Skrip mematikan swap, memasang k3s versi `v1.37.2+k3s1`, lalu mencetak perintah join lengkap dengan token.
 
-Di `node-b`, `node-c`, dan `node-d`, jalankan perintah join yang dicetak tadi:
+Di `node-b`, `node-d`, dan `node-e`, jalankan perintah join yang dicetak tadi:
 
 ```bash
 sudo bash k3s-agent.sh <ip-node-a> <token>
@@ -64,7 +64,7 @@ bash scripts/vm/fetch-kubeconfig.sh <ip-node-a>
 ```
 
 ```bash
-export KUBECONFIG=~/.kube/bnpb-vm.yaml
+export KUBECONFIG="$(cygpath -m ~/.kube/bnpb-vm.yaml)"
 ```
 
 2. Login ke GitHub Container Registry dengan token yang punya izin `write:packages`:
@@ -78,7 +78,7 @@ docker login ghcr.io
 4. Deploy:
 
 ```bash
-bash scripts/deploy.sh --overlay vm --registry ghcr.io/koinen/
+bash scripts/deploy.sh --overlay vm --registry ghcr.io/peterwongsoredjo/
 ```
 
 5. Buka tunnel di terminal lain agar `localhost:8080` sampai `8085` mengarah ke cluster VM, lalu cek kesehatan:
@@ -126,11 +126,7 @@ Overlay `vm` memakai tiga broker dengan replikasi topic dari base (RF 3, min.ins
 1. `kafka` count menjadi `1`.
 2. tambahkan `- path: kafka-config.yaml` di bawah `patches:` sehingga replikasi topic turun ke 1.
 
-## 9. Yang belum teruji sebelum pertemuan
-
-Skrip `k3s-server.sh`, `k3s-agent.sh`, `fetch-kubeconfig.sh`, `tunnel.sh`, `tailnet-join.sh`, dan `tailnet-node.sh` baru diperiksa sintaksnya, karena membutuhkan VM sungguhan. Push ke GHCR membutuhkan login tim. Manifest overlay `vm` sudah dirender dan divalidasi terhadap Kubernetes.
-
-## 10. Node di jaringan berbeda lewat Tailscale
+## 9. Node di jaringan berbeda lewat Tailscale
 
 Bila laptop tidak berada pada Wi-Fi yang sama, setiap VM bergabung ke satu tailnet Tailscale dan k3s memakai IP tailnet (`100.x.y.z`) pada interface `tailscale0`, bukan IP bridged.
 
@@ -157,7 +153,7 @@ Skrip mencetak IP tailnet `node-a` (`node-a tailnet ip 100.x.y.z`). IP yang sama
 3. Di setiap worker:
 
 ```bash
-TS_AUTHKEY=<key> K3S_TOKEN=<token> bash scripts/vm/tailnet-join.sh node-c agent <ip-tailnet-node-a>
+TS_AUTHKEY=<key> K3S_TOKEN=<token> bash scripts/vm/tailnet-join.sh node-b agent <ip-tailnet-node-a>
 ```
 
 4. Node cadangan untuk uji node baru cukup masuk tailnet dulu, lalu join dengan perintah langkah 3 saat diminta:
