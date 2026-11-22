@@ -141,6 +141,11 @@ func newApp(ctx context.Context, cfg Config, store *Store, state *State, log *sl
 		}
 		return c.JSON(fiber.Map{"status": "ok", "service": serviceName})
 	})
+	// /ready is the readiness probe. It ignores the simulated outage, so the pod stays behind its
+	// Service during one: callers meet the hang or the 503, and POST /admin/outage can end it.
+	app.Get("/ready", func(c fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok", "service": serviceName})
+	})
 
 	app.Get("/volcanic-reports",
 		outageMiddleware(ctx, state, cfg.HangMax, log),

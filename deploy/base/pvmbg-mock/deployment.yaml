@@ -51,7 +51,7 @@ spec:
           readinessProbe:
             timeoutSeconds: 3
             httpGet:
-              path: /health
+              path: /ready # not /health: that one turns 503 during a simulated outage
               port: 8080
             periodSeconds: 5
             failureThreshold: 2
