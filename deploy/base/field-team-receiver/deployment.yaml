@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: field-team-receiver
+  labels:
+    app: field-team-receiver
+    bnpb.io/stage: apps
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: field-team-receiver
+  template:
+    metadata:
+      labels:
+        app: field-team-receiver
+        role: other
+    spec:
+      enableServiceLinks: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: field-team-receiver
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+      containers:
+        - name: field-team-receiver
+          image: bnpb/field-team-receiver:TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: alerts
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: bnpb-common
+          readinessProbe:
+            tcpSocket:
+              port: alerts
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: alerts
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 256Mi

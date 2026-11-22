@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notifier-config
+  labels:
+    app: notifier
+    bnpb.io/stage: apps
+data:
+  PORT: "8080"
+  KAFKA_GROUP_ID: "notifier"
+  DEDUP_DIR: "/data"
+  FIELD_TEAM_WEBHOOK_URL: "http://field-team-receiver:8080/alerts"

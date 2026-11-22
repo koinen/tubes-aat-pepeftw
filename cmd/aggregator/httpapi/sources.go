@@ -7,7 +7,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 
 	"tubes-aat-pepeftw/cmd/aggregator/model"
-	"tubes-aat-pepeftw/cmd/aggregator/repository"
 )
 
 var knownSources = []model.Source{model.SourceBMKG, model.SourcePVMBG}
@@ -19,15 +18,15 @@ type sourceEntry struct {
 }
 
 func (h handlers) sourcesStatus(c fiber.Ctx) error {
-	statuses, err := statusBySource(c.Context(), h.statuses)
+	statuses, err := h.statusBySource(c.Context())
 	if err != nil {
 		return err
 	}
 	return writeData(c, statuses)
 }
 
-func sourcesBlock(ctx context.Context, repo repository.SourceStatusRepository) (map[model.Source]sourceEntry, error) {
-	statuses, err := statusBySource(ctx, repo)
+func (h handlers) sourcesBlock(ctx context.Context) (map[model.Source]sourceEntry, error) {
+	statuses, err := h.statusBySource(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -38,8 +37,8 @@ func sourcesBlock(ctx context.Context, repo repository.SourceStatusRepository) (
 	return out, nil
 }
 
-func statusBySource(ctx context.Context, repo repository.SourceStatusRepository) (map[model.Source]model.SourceStatus, error) {
-	list, err := repo.ListSourceStatus(ctx)
+func (h handlers) statusBySource(ctx context.Context) (map[model.Source]model.SourceStatus, error) {
+	list, err := h.statuses.ListSourceStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +46,15 @@ func statusBySource(ctx context.Context, repo repository.SourceStatusRepository)
 	for _, src := range knownSources {
 		out[src] = model.SourceStatus{Source: src, Status: model.StatusUnavailable, BreakerState: model.BreakerClosed}
 	}
+	if h.sensorPantaiEnabled {
+		out[model.SourceSensorPantai] = model.SourceStatus{
+			Source: model.SourceSensorPantai, Status: model.StatusUnavailable, BreakerState: model.BreakerClosed,
+		}
+	}
 	for _, st := range list {
+		if st.Source == model.SourceSensorPantai && !h.sensorPantaiEnabled {
+			continue
+		}
 		out[st.Source] = st
 	}
 	return out, nil

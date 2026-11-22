@@ -1,6 +1,7 @@
 package token
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+const revocationTimeout = 5 * time.Second
+
 type Client struct {
 	Scope  string
 	Secret string // filled from env at startup
@@ -27,6 +30,7 @@ type tokenHandler struct {
 	cfg         config.TokenConfig
 	redisClient *redis.Client
 	kafkaClient *kgo.Client
+	topic       string
 	keyId       string
 	signingKey  ed25519.PrivateKey
 	publicKeyX  string
@@ -37,6 +41,7 @@ func NewTokenHandler(
 	cfg config.TokenConfig,
 	redisClient *redis.Client,
 	kafkaClient *kgo.Client,
+	topic string,
 	log *slog.Logger,
 ) (*tokenHandler, error) {
 	parsed, err := jwt.ParseEdPrivateKeyFromPEM([]byte(cfg.PrivateKey))
@@ -50,15 +55,18 @@ func NewTokenHandler(
 	publicKey := signingKey.Public().(ed25519.PublicKey)
 
 	clients := map[string]Client{
-		"media":      {Scope: "hazard:read:summary", Secret: cfg.MediaSecret},
-		"field-team": {Scope: "hazard:read:raw", Secret: cfg.FieldTeamSecret},
-		"bnpb-ops":   {Scope: "hazard:read:raw", Secret: cfg.BnpbOpsSecret},
+		"media": {Scope: "hazard:read:summary", Secret: cfg.MediaSecret},
+		// The scope claim is space-separated. Only field-team may send field reports.
+		"field-team": {Scope: "hazard:read:raw field-report:write", Secret: cfg.FieldTeamSecret},
+		// Only bnpb-ops may read and replay failed messages.
+		"bnpb-ops": {Scope: "hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed", Secret: cfg.BnpbOpsSecret},
 	}
 	return &tokenHandler{
 		clients:     clients,
 		cfg:         cfg,
 		redisClient: redisClient,
 		kafkaClient: kafkaClient,
+		topic:       topic,
 		keyId:       "auth-service-key",
 		signingKey:  signingKey,
 		publicKeyX:  base64.RawURLEncoding.EncodeToString(publicKey),
@@ -198,7 +206,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 		case 1: // rotated
 			// Publish old jti to auth-revocations so downstream services revoke it
 			record := &kgo.Record{
-				Topic: "auth-revocations",
+				Topic: h.topic,
 				Value: []byte(oldJti),
 			}
 			if err := h.publishRevocation(c, record); err != nil {
@@ -237,7 +245,7 @@ func (h *tokenHandler) IssueToken(c fiber.Ctx) error {
 			// The Lua script already DEL'd rt:{sid}, so the session is destroyed.
 			// Publish the current (compromised) jti to auth-revocations.
 			record := &kgo.Record{
-				Topic: "auth-revocations",
+				Topic: h.topic,
 				Value: []byte(oldJti),
 			}
 			_ = h.publishRevocation(c, record) // best-effort
@@ -285,8 +293,10 @@ func parseRefreshToken(token string) (sid string, secret string, ok bool) {
 }
 
 func (h *tokenHandler) publishRevocation(c fiber.Ctx, record *kgo.Record) error {
+	ctx, cancel := context.WithTimeout(c.Context(), revocationTimeout)
+	defer cancel()
 	start := time.Now()
-	err := h.kafkaClient.ProduceSync(c.Context(), record).FirstErr()
+	err := h.kafkaClient.ProduceSync(ctx, record).FirstErr()
 	attrs := []any{
 		"correlation_id", common.CorrelationIDFrom(c), "target", "kafka", "method", "PRODUCE",
 		"path", record.Topic, "latency_ms", time.Since(start).Milliseconds(),

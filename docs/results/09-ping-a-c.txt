@@ -1,0 +1,25 @@
+PING 172.20.10.8 (172.20.10.8) 56(84) bytes of data.
+64 bytes from 172.20.10.8: icmp_seq=1 ttl=64 time=10.9 ms
+64 bytes from 172.20.10.8: icmp_seq=2 ttl=64 time=7.03 ms
+64 bytes from 172.20.10.8: icmp_seq=3 ttl=64 time=18.0 ms
+64 bytes from 172.20.10.8: icmp_seq=4 ttl=64 time=15.0 ms
+64 bytes from 172.20.10.8: icmp_seq=5 ttl=64 time=13.8 ms
+64 bytes from 172.20.10.8: icmp_seq=6 ttl=64 time=8.02 ms
+64 bytes from 172.20.10.8: icmp_seq=7 ttl=64 time=9.12 ms
+64 bytes from 172.20.10.8: icmp_seq=8 ttl=64 time=11.0 ms
+64 bytes from 172.20.10.8: icmp_seq=9 ttl=64 time=11.2 ms
+64 bytes from 172.20.10.8: icmp_seq=10 ttl=64 time=51.5 ms
+64 bytes from 172.20.10.8: icmp_seq=11 ttl=64 time=7.35 ms
+64 bytes from 172.20.10.8: icmp_seq=12 ttl=64 time=11.7 ms
+64 bytes from 172.20.10.8: icmp_seq=13 ttl=64 time=36.0 ms
+64 bytes from 172.20.10.8: icmp_seq=14 ttl=64 time=8.40 ms
+64 bytes from 172.20.10.8: icmp_seq=15 ttl=64 time=8.67 ms
+64 bytes from 172.20.10.8: icmp_seq=16 ttl=64 time=47.6 ms
+64 bytes from 172.20.10.8: icmp_seq=17 ttl=64 time=11.2 ms
+64 bytes from 172.20.10.8: icmp_seq=18 ttl=64 time=13.0 ms
+64 bytes from 172.20.10.8: icmp_seq=19 ttl=64 time=22.3 ms
+64 bytes from 172.20.10.8: icmp_seq=20 ttl=64 time=11.5 ms
+
+--- 172.20.10.8 ping statistics ---
+20 packets transmitted, 20 received, 0% packet loss, time 19372ms
+rtt min/avg/max/mdev = 7.027/16.659/51.472/12.687 ms

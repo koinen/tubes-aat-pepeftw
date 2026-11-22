@@ -1,0 +1,12 @@
+$ for n in node-b node-d; do vagrant ssh $n -c "hostname; sudo ls /var/lib/rancher/k3s/storage/ /var/lib/bnpb/ 2>&1"; done
+node-b
+ls: cannot access '/var/lib/bnpb/': No such file or directory
+/var/lib/rancher/k3s/storage/:
+pvc-b3146f6c-ff0f-4866-9070-23dcfeab1273_sistem-informasi-kebencanaan-bnpb_data-kafka-0
+pvc-fe82b90c-4b59-4401-a3da-07eabe9a9de7_sistem-informasi-kebencanaan-bnpb_data-crdb-3
+node-d
+/var/lib/bnpb/:
+client-api-store
+
+/var/lib/rancher/k3s/storage/:
+pvc-7eefb289-5e44-41a4-9553-9db137180a01_sistem-informasi-kebencanaan-bnpb_data-crdb-2

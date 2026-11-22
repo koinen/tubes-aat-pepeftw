@@ -1,0 +1,3 @@
+Latihan "wipe-node": 1 langkah
+  - t+5s wipe_and_shutdown role=store nodes=any
+Permintaan b1db991efb46 dikirim. Lihat hasil dengan: kubectl logs -n tester-agent -l app=tester-agent

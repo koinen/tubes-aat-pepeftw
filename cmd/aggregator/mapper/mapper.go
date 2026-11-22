@@ -25,7 +25,9 @@ func HazardID(source model.Source, sourceRefID string) string {
 	return uuid.NewSHA1(hazardNamespace, []byte(string(source)+":"+sourceRefID)).String()
 }
 
+// RejectError is the mapper's verdict that a record cannot become a HazardEvent.
 type RejectError struct {
+	Code        model.ReasonCode
 	SourceRefID string
 	Reason      string
 }
@@ -37,27 +39,9 @@ func (e *RejectError) Error() string {
 	return e.SourceRefID + ": " + e.Reason
 }
 
+// reject reports a breaking change: the record exists but does not match the contract.
 func reject(ref, format string, args ...any) *RejectError {
-	return &RejectError{SourceRefID: ref, Reason: fmt.Sprintf(format, args...)}
-}
-
-func Rejected(source model.Source, endpoint string, raw json.RawMessage, err error, now time.Time) model.RejectedRecord {
-	r := model.RejectedRecord{
-		Source:     source,
-		Endpoint:   endpoint,
-		Reason:     err.Error(),
-		Payload:    raw,
-		RejectedAt: now.UTC(),
-	}
-	if re, ok := err.(*RejectError); ok {
-		r.SourceRefID = re.SourceRefID
-		r.Reason = re.Reason
-	}
-	if !json.Valid(raw) {
-		quoted, _ := json.Marshal(string(raw))
-		r.Payload = quoted
-	}
-	return r
+	return &RejectError{Code: model.ReasonSchemaIncompatible, SourceRefID: ref, Reason: fmt.Sprintf(format, args...)}
 }
 
 type fields struct {
@@ -68,10 +52,10 @@ type fields struct {
 func decode(raw json.RawMessage) (*fields, error) {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, reject("", "JSON tidak valid atau bukan object: %v", err)
+		return nil, &RejectError{Code: model.ReasonMalformedJSON, Reason: fmt.Sprintf("JSON tidak valid atau bukan object: %v", err)}
 	}
 	if m == nil {
-		return nil, reject("", "record kosong (null)")
+		return nil, &RejectError{Code: model.ReasonMalformedJSON, Reason: "record kosong (null)"}
 	}
 	return &fields{m: m}, nil
 }

@@ -1,19 +1,38 @@
 services:
   aggregator-db:
-    image: postgres:17
-    environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+    image: cockroachdb/cockroach:v24.2.4
+    command: ["start-single-node", "--insecure", "--cache=128MiB", "--max-sql-memory=128MiB"]
     volumes:
-      - aggregator_db_data:/var/lib/postgresql/data
-      - ./cmd/aggregator/migrations:/docker-entrypoint-initdb.d:ro
+      - aggregator_db_data:/cockroach/cockroach-data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 2s
-      timeout: 3s
-      retries: 15
+      test: ["CMD", "/cockroach/cockroach", "sql", "--insecure", "-e", "SELECT 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
+    mem_limit: 1g
+    networks:
+      - store-net
+
+  aggregator-db-init:
+    image: cockroachdb/cockroach:v24.2.4
+    entrypoint: ["/cockroach/cockroach"]
+    command:
+      - sql
+      - --insecure
+      - --host=aggregator-db
+      - -e
+      - CREATE DATABASE IF NOT EXISTS ${DB_NAME}
+      - -e
+      - CREATE USER IF NOT EXISTS ${DB_USER}
+      - -e
+      - GRANT ALL ON DATABASE ${DB_NAME} TO ${DB_USER}
+      - -e
+      - GRANT ALL ON SCHEMA ${DB_NAME}.public TO ${DB_USER}
+    depends_on:
+      aggregator-db:
+        condition: service_healthy
+    restart: "no"
     networks:
       - store-net
 
@@ -38,8 +57,10 @@ services:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_AUTH_REVOCATIONS: ${KAFKA_TOPIC_AUTH_REVOCATIONS}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_CLIENT_API_REVOCATIONS}
+      KAFKA_TOPIC_FIELD_REPORTS: ${KAFKA_TOPIC_FIELD_REPORTS:-field-reports}
       AGGREGATOR_URL: http://aggregator:8080
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      OPS_TOKEN: ${OPS_TOKEN:-}
       AUTH_JWKS_URL: http://auth:8080/.well-known/jwks.json
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}
@@ -95,19 +116,41 @@ services:
     volumes:
       - ./secrets:/app/secrets:ro
   
+  aggregator-migrate:
+    build:
+      context: .
+      dockerfile: ./cmd/aggregator/Dockerfile
+    command: ["./aggregator", "migrate"]
+    environment:
+      DB_HOST: aggregator-db
+      DB_PORT: "26257"
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    depends_on:
+      aggregator-db-init:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - store-net
+
   aggregator:
     build:
       context: .
       dockerfile: ./cmd/aggregator/Dockerfile
     environment:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      AUDIT_TOKEN: ${AUDIT_TOKEN:-}
+      OPS_TOKEN: ${OPS_TOKEN:-}
       DB_HOST: aggregator-db
-      DB_PORT: "5432"
+      DB_PORT: "26257"
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_TOPIC_UNPROCESSED: ${KAFKA_TOPIC_UNPROCESSED:-unprocessed}
+      KAFKA_TOPIC_FIELD_REPORTS: ${KAFKA_TOPIC_FIELD_REPORTS:-field-reports}
       POLLER_ENABLED: ${POLLER_ENABLED:-true}
       BMKG_URL: http://bmkg-mock:8080
       BMKG_API_KEY: ${BMKG_API_KEY}
@@ -120,11 +163,12 @@ services:
       BREAKER_FAILURES: ${BREAKER_FAILURES:-3}
       BREAKER_OPEN_FOR: ${BREAKER_OPEN_FOR:-15s}
       TSUNAMI_GRACE: ${TSUNAMI_GRACE:-30s}
+      PVMBG_ADAPTATIONS: ${PVMBG_ADAPTATIONS:-}
     ports:
       - "8085:8080"
     depends_on:
-      aggregator-db:
-        condition: service_healthy
+      aggregator-migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       - default
@@ -137,6 +181,7 @@ services:
     environment:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_TOPIC_UNPROCESSED: ${KAFKA_TOPIC_UNPROCESSED:-unprocessed}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_DASHBOARD}
     ports:
       - "8083:8080"
@@ -149,6 +194,7 @@ services:
     environment:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_TOPIC_UNPROCESSED: ${KAFKA_TOPIC_UNPROCESSED:-unprocessed}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_NOTIFIER}
       DEDUP_DIR: /data
     volumes:
@@ -163,6 +209,7 @@ services:
     environment:
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_TOPIC_HAZARD_EVENTS: ${KAFKA_TOPIC_HAZARD_EVENTS}
+      KAFKA_TOPIC_UNPROCESSED: ${KAFKA_TOPIC_UNPROCESSED:-unprocessed}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID_AUDIT}
       DEDUP_DIR: /data
     volumes:
@@ -262,6 +309,8 @@ services:
         B=kafka:9092
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic hazard-events --partitions 3 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic auth-revocations --partitions 1 --replication-factor 1 --config retention.ms=600000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic field-reports --partitions 3 --replication-factor 1 --config retention.ms=604800000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --create --if-not-exists --topic unprocessed --partitions 3 --replication-factor 1 --config retention.ms=604800000 --config max.message.bytes=2097152
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$B --describe
     restart: "no"
 

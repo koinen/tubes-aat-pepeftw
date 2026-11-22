@@ -13,6 +13,10 @@ type config struct {
 	topic     string
 	groupID   string
 	dedupFile string
+
+	// unprocessedTopic receives values this consumer cannot read.
+	unprocessedTopic string
+	webhookURL       string
 }
 
 func loadConfig() (config, error) {
@@ -21,6 +25,9 @@ func loadConfig() (config, error) {
 		brokers: splitList(os.Getenv("KAFKA_BROKERS")),
 		topic:   getenv("KAFKA_TOPIC_HAZARD_EVENTS", "hazard-events"),
 		groupID: getenv("KAFKA_GROUP_ID", "notifier"),
+
+		unprocessedTopic: getenv("KAFKA_TOPIC_UNPROCESSED", "unprocessed"),
+		webhookURL:       strings.TrimSpace(os.Getenv("FIELD_TEAM_WEBHOOK_URL")),
 	}
 	if len(cfg.brokers) == 0 {
 		return config{}, errors.New("KAFKA_BROKERS is required")

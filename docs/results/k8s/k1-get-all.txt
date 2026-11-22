@@ -1,0 +1,96 @@
+NAME                                       READY   STATUS      RESTARTS      AGE
+pod/aggregator-74dcc87c9f-gnvn7            1/1     Running     0             3m24s
+pod/aggregator-74dcc87c9f-p5qlq            1/1     Running     0             3m24s
+pod/aggregator-74dcc87c9f-zrzbh            1/1     Running     0             3m24s
+pod/aggregator-migrate-6f6ng               0/1     Completed   0             3m34s
+pod/analytics-dashboard-d8dbb7895-n9jln    1/1     Running     0             3m24s
+pod/auth-6dd9d78d6b-l2pqm                  1/1     Running     0             3m24s
+pod/auth-store-fc9d64cb8-7hsnv             1/1     Running     1 (67m ago)   22h
+pod/bmkg-mock-6bf78d555b-ttfcv             1/1     Running     0             3m24s
+pod/client-api-8bf7894c9-8vl2v             1/1     Running     0             3m24s
+pod/client-api-store-644fcb9c4d-j2jgn      1/1     Running     1 (66m ago)   22h
+pod/crdb-0                                 1/1     Running     0             49m
+pod/crdb-1                                 1/1     Running     0             50m
+pod/crdb-2                                 1/1     Running     0             50m
+pod/crdb-3                                 1/1     Running     0             50m
+pod/crdb-init-hdtw8                        0/1     Completed   0             4m18s
+pod/dashboard-updater-787cf5c787-qxjwp     1/1     Running     0             3m24s
+pod/field-team-receiver-796b875997-dm7d9   1/1     Running     0             3m23s
+pod/field-team-receiver-796b875997-mm52x   1/1     Running     0             3m23s
+pod/grafana-844dcbb445-sccn6               1/1     Running     1 (66m ago)   22h
+pod/jaeger-bfcfcd6bb-rbncz                 1/1     Running     1 (66m ago)   22h
+pod/kafka-0                                1/1     Running     1 (66m ago)   22h
+pod/kafka-1                                1/1     Running     1 (67m ago)   22h
+pod/kafka-2                                1/1     Running     1 (67m ago)   22h
+pod/kafka-topics-6zl6w                     0/1     Completed   0             4m18s
+pod/notifier-65fff76868-sqrq8              1/1     Running     0             3m23s
+pod/prometheus-795f86859b-6tcnr            1/1     Running     1 (66m ago)   22h
+pod/pvmbg-mock-544b586dfc-5xsp7            1/1     Running     0             3m23s
+pod/sensor-pantai-84f45697b7-n88xf         1/1     Running     1 (66m ago)   22h
+
+NAME                          TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                          AGE
+service/aggregator            NodePort    10.43.218.132   <none>        8080:30085/TCP                   3m25s
+service/analytics-dashboard   NodePort    10.43.13.53     <none>        8080:30086/TCP                   3m25s
+service/audit-log             ClusterIP   10.43.97.10     <none>        8080/TCP                         3m25s
+service/auth                  NodePort    10.43.127.136   <none>        8080:30084/TCP                   3m25s
+service/auth-store            ClusterIP   10.43.201.237   <none>        6379/TCP                         22h
+service/bmkg-mock             NodePort    10.43.154.116   <none>        8080:30081/TCP                   3m25s
+service/client-api            NodePort    10.43.163.36    <none>        8080:30080/TCP                   3m25s
+service/client-api-store      ClusterIP   10.43.60.203    <none>        6379/TCP                         22h
+service/crdb-headless         ClusterIP   None            <none>        26257/TCP,8080/TCP               22h
+service/crdb-public           ClusterIP   10.43.41.100    <none>        26257/TCP,8080/TCP               22h
+service/dashboard-updater     NodePort    10.43.197.172   <none>        8080:30083/TCP                   3m24s
+service/field-team-receiver   ClusterIP   10.43.67.224    <none>        8080/TCP                         3m24s
+service/grafana               NodePort    10.43.10.41     <none>        3000:30087/TCP                   22h
+service/jaeger                NodePort    10.43.147.243   <none>        16686:30088/TCP,4318:32011/TCP   22h
+service/kafka                 ClusterIP   10.43.45.71     <none>        9092/TCP                         22h
+service/kafka-headless        ClusterIP   None            <none>        9092/TCP,9093/TCP                22h
+service/notifier              ClusterIP   10.43.138.150   <none>        8080/TCP                         3m24s
+service/prometheus            NodePort    10.43.166.12    <none>        9090:30089/TCP                   22h
+service/pvmbg-mock            NodePort    10.43.31.220    <none>        8080:30082/TCP                   3m24s
+service/sensor-pantai         ClusterIP   10.43.247.9     <none>        8080/TCP                         22h
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/aggregator            3/3     3            3           3m24s
+deployment.apps/analytics-dashboard   1/1     1            1           3m24s
+deployment.apps/audit-log             0/0     0            0           3m24s
+deployment.apps/auth                  1/1     1            1           3m24s
+deployment.apps/auth-store            1/1     1            1           22h
+deployment.apps/bmkg-mock             1/1     1            1           3m24s
+deployment.apps/client-api            1/1     1            1           3m24s
+deployment.apps/client-api-store      1/1     1            1           22h
+deployment.apps/dashboard-updater     1/1     1            1           3m24s
+deployment.apps/field-team-receiver   2/2     2            2           3m24s
+deployment.apps/grafana               1/1     1            1           22h
+deployment.apps/jaeger                1/1     1            1           22h
+deployment.apps/notifier              1/1     1            1           3m23s
+deployment.apps/prometheus            1/1     1            1           22h
+deployment.apps/pvmbg-mock            1/1     1            1           3m23s
+deployment.apps/sensor-pantai         1/1     1            1           22h
+
+NAME                                             DESIRED   CURRENT   READY   AGE
+replicaset.apps/aggregator-74dcc87c9f            3         3         3       3m24s
+replicaset.apps/analytics-dashboard-d8dbb7895    1         1         1       3m24s
+replicaset.apps/audit-log-658bf9c8cd             0         0         0       3m24s
+replicaset.apps/auth-6dd9d78d6b                  1         1         1       3m24s
+replicaset.apps/auth-store-fc9d64cb8             1         1         1       22h
+replicaset.apps/bmkg-mock-6bf78d555b             1         1         1       3m24s
+replicaset.apps/client-api-8bf7894c9             1         1         1       3m24s
+replicaset.apps/client-api-store-644fcb9c4d      1         1         1       22h
+replicaset.apps/dashboard-updater-787cf5c787     1         1         1       3m24s
+replicaset.apps/field-team-receiver-796b875997   2         2         2       3m24s
+replicaset.apps/grafana-844dcbb445               1         1         1       22h
+replicaset.apps/jaeger-bfcfcd6bb                 1         1         1       22h
+replicaset.apps/notifier-65fff76868              1         1         1       3m23s
+replicaset.apps/prometheus-795f86859b            1         1         1       22h
+replicaset.apps/pvmbg-mock-544b586dfc            1         1         1       3m23s
+replicaset.apps/sensor-pantai-84f45697b7         1         1         1       22h
+
+NAME                     READY   AGE
+statefulset.apps/crdb    4/4     22h
+statefulset.apps/kafka   3/3     22h
+
+NAME                           STATUS     COMPLETIONS   DURATION   AGE
+job.batch/aggregator-migrate   Complete   1/1           9s         3m34s
+job.batch/crdb-init            Complete   1/1           33s        4m18s
+job.batch/kafka-topics         Complete   1/1           44s        4m18s

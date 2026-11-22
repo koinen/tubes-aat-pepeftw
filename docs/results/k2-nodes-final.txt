@@ -1,0 +1,5 @@
+NAME     STATUS   ROLES           AGE   VERSION        INTERNAL-IP      EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION                CONTAINER-RUNTIME
+node-a   Ready    control-plane   26h   v1.37.2+k3s1   100.121.115.24   <none>        Debian GNU/Linux 13 (trixie)   6.12.48+deb13-amd64 (amd64)   containerd://2.3.7-k3s1
+node-b   Ready    <none>          26h   v1.37.2+k3s1   100.64.254.55    <none>        Debian GNU/Linux 13 (trixie)   6.12.48+deb13-amd64 (amd64)   containerd://2.3.7-k3s1
+node-c   Ready    <none>          26h   v1.37.2+k3s1   100.126.91.125   <none>        Debian GNU/Linux 13 (trixie)   6.12.48+deb13-amd64 (amd64)   containerd://2.3.7-k3s1
+node-d   Ready    <none>          26h   v1.37.2+k3s1   100.108.243.53   <none>        Debian GNU/Linux 13 (trixie)   6.12.48+deb13-amd64 (amd64)   containerd://2.3.7-k3s1

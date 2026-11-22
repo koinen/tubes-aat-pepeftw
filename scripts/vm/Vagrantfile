@@ -1,0 +1,39 @@
+NODES = {
+  "node-a" => 3072,
+  "node-b" => 2560,
+  "node-c" => 2560,
+  "node-d" => 2560,
+  "node-e" => 2560,
+}
+
+pubkey_path = ENV["BNPB_PUBKEY"] || File.join(Dir.home, ".ssh", "id_ed25519.pub")
+pubkey = File.exist?(pubkey_path) ? File.read(pubkey_path).strip : ""
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "bento/debian-13"
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.boot_timeout = 600
+
+  NODES.each do |name, memory|
+    config.vm.define name, autostart: false do |node|
+      node.vm.hostname = name
+      if ENV["BRIDGE"]
+        node.vm.network "public_network", bridge: ENV["BRIDGE"]
+      else
+        node.vm.network "public_network"
+      end
+
+      node.vm.provider "virtualbox" do |vb|
+        vb.name = name
+        vb.memory = memory
+        vb.cpus = 2
+        vb.customize ["modifyvm", :id, "--chipset", "piix3"]
+      end
+
+      node.vm.provision "file", source: "k3s-server.sh", destination: "/tmp/k3s-server.sh"
+      node.vm.provision "file", source: "k3s-agent.sh", destination: "/tmp/k3s-agent.sh"
+      node.vm.provision "shell", path: "vagrant-provision.sh",
+        args: [name == "node-a" ? "server" : "agent", ENV["SERVER_IP"] || "", ENV["K3S_TOKEN"] || "", pubkey]
+    end
+  end
+end

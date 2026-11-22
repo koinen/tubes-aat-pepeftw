@@ -86,3 +86,13 @@ func (v *Verifier) Middleware(c fiber.Ctx) error {
 
 	return c.Next()
 }
+
+// RequireScope lets a verified request through only if its token holds scope; otherwise 403.
+func RequireScope(scope string) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		if !common.HasScope(c, scope) {
+			return common.WriteError(c, fiber.StatusForbidden, common.CodeForbidden, "scope "+scope+" diperlukan")
+		}
+		return c.Next()
+	}
+}

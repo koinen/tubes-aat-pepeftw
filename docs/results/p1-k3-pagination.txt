@@ -1,0 +1,5 @@
+{"BMKG":{"last_success_at":"2026-11-20T16:48:40Z","stale_since":null,"status":"OK"},"PVMBG":{"last_success_at":"2026-11-20T16:38:51Z","stale_since":null,"status":"OK"},"SENSOR_PANTAI":{"last_success_at":null,"stale_since":null,"status":"UNAVAILABLE"}},"unavailable_units":[]}
+status 200 in 2.887766s
+--- page 2, cursor=eyJ0IjoiMjAyNi0xMS0yMFQx...
+:{"BMKG":{"last_success_at":"2026-11-20T16:48:40Z","stale_since":null,"status":"OK"},"PVMBG":{"last_success_at":"2026-11-20T16:38:51Z","stale_since":null,"status":"OK"},"SENSOR_PANTAI":{"last_success_at":null,"stale_since":null,"status":"UNAVAILABLE"}},"unavailable_units":[]}
+status 200 in 1.030541s

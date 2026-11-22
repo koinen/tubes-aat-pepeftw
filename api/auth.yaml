@@ -9,8 +9,10 @@ info:
     | client_id | scope | refresh |
     |---|---|---|
     | media | hazard:read:summary | tidak |
-    | field-team | hazard:read:raw | ya |
-    | bnpb-ops | hazard:read:raw | tidak |
+    | field-team | hazard:read:raw field-report:write | ya |
+    | bnpb-ops | hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed | tidak |
+
+    Klaim scope berisi daftar scope dipisah spasi.
 
     Refresh memakai rotasi. Refresh token lama ditandai terpakai, access token lama dicabut dan jti-nya dipublikasikan ke topic auth-revocations.
     Refresh token yang dipakai ulang membuat seluruh sesi dicabut.
@@ -84,7 +86,11 @@ components:
       enum: [media, field-team, bnpb-ops]
     Scope:
       type: string
-      enum: ['hazard:read:summary', 'hazard:read:raw']
+      description: |
+        Daftar scope dipisah spasi. Nilai yang mungkin: hazard:read:summary, hazard:read:raw,
+        hazard:read:unprocessed (melihat pesan gagal), hazard:replay:unprocessed (replay pesan gagal),
+        field-report:write (mengirim laporan lapangan).
+      examples: ['hazard:read:summary', 'hazard:read:raw field-report:write', 'hazard:read:raw hazard:read:unprocessed hazard:replay:unprocessed']
     ClientCredentialsRequest:
       type: object
       required: [grant_type, client_id, client_secret]

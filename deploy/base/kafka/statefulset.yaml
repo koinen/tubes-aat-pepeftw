@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+    bnpb.io/stage: infra
+spec:
+  serviceName: kafka-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+        role: broker
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: kafka
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: kafka
+          image: apache/kafka:4.3.1
+          command: ["/bin/sh", "/opt/bnpb/start.sh"]
+          envFrom:
+            - configMapRef:
+                name: kafka-config
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: client
+              containerPort: 9092
+            - name: controller
+              containerPort: 9093
+          readinessProbe:
+            timeoutSeconds: 3
+            tcpSocket:
+              port: client
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: controller
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka/data
+            - name: scripts
+              mountPath: /opt/bnpb
+      volumes:
+        - name: scripts
+          configMap:
+            name: kafka-scripts
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const (
@@ -21,6 +23,8 @@ var indexHTML []byte
 
 func newServer(ctx context.Context, recent *recentHazards, live *broadcaster, ping func(context.Context) error) *fiber.App {
 	app := fiber.New()
+	app.Use(telemetry.Middleware())
+	app.Get("/metrics", telemetry.MetricsHandler())
 
 	app.Get("/", func(c fiber.Ctx) error {
 		c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)

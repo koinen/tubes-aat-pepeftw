@@ -29,26 +29,27 @@ const (
 	ScopeRaw     = "hazard:read:raw"
 )
 
-// ValidateFields checks that every requested field is valid and accessible to scope.
-// Returns errCode ("VALIDATION_ERROR" or "FORBIDDEN_FIELD") and errMsg, or empty strings if valid.
-func ValidateFields(fields []string, scope string) (errCode, errMsg string) {
+// ValidateFields checks that every requested field is valid and accessible to a token that holds
+// ScopeRaw (raw) or not. Returns errCode ("VALIDATION_ERROR" or "FORBIDDEN_FIELD") and errMsg, or
+// empty strings if valid.
+func ValidateFields(fields []string, raw bool) (errCode, errMsg string) {
 	for _, f := range fields {
 		cls, ok := AllFields[f]
 		if !ok {
 			return "VALIDATION_ERROR", fmt.Sprintf("unknown field: %s", f)
 		}
-		if scope == ScopeSummary && cls == ClassRaw {
+		if !raw && cls == ClassRaw {
 			return "FORBIDDEN_FIELD", fmt.Sprintf("Scope %s tidak mengizinkan field: %s", ScopeSummary, f)
 		}
 	}
 	return "", ""
 }
 
-// DefaultFields returns the full set of allowed fields for a given scope.
-func DefaultFields(scope string) []string {
+// DefaultFields returns every field a token that holds ScopeRaw (raw) or not may see.
+func DefaultFields(raw bool) []string {
 	var out []string
 	for f, cls := range AllFields {
-		if scope == ScopeRaw || cls == ClassSummary {
+		if raw || cls == ClassSummary {
 			out = append(out, f)
 		}
 	}

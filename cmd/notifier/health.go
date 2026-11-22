@@ -5,12 +5,15 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const healthTimeout = 2 * time.Second
 
 func newHealthApp(ping func(context.Context) error) *fiber.App {
 	app := fiber.New()
+	app.Get("/metrics", telemetry.MetricsHandler())
 	app.Get("/health", func(c fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.Context(), healthTimeout)
 		defer cancel()

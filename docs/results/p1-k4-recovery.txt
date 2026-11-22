@@ -1,0 +1,30 @@
+22:41:05 still recovering
+22:41:19 still recovering
+22:41:44 still recovering
+22:41:55 still recovering
+22:42:06 still recovering
+22:42:17 still recovering
+22:42:29 still recovering
+22:42:40 still recovering
+22:42:51 still recovering
+22:43:02 still recovering
+22:43:13 still recovering
+22:43:24 still recovering
+22:43:35 still recovering
+22:43:46 still recovering
+22:43:57 still recovering
+22:44:07 still recovering
+22:44:18 still recovering
+22:44:29 still recovering
+fully replicated again after 236s
+  crdb_node | k8s_node |          address           | membership | is_live
+------------+----------+----------------------------+------------+----------
+          1 | node-a   | crdb-0.crdb-headless:26257 | active     |    t
+          2 | node-d   | crdb-2.crdb-headless:26257 | active     |    t
+          3 | node-c   | crdb-1.crdb-headless:26257 | active     |    f
+          4 | node-b   | crdb-3.crdb-headless:26257 | active     |    t
+(4 rows)
+  underreplicated_ranges | unavailable_ranges
+-------------------------+---------------------
+                       0 |                  0
+(1 row)

@@ -3,7 +3,6 @@ package poller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -16,14 +15,14 @@ import (
 const cacheTTL = time.Hour
 
 type bmkgPoller struct {
-	f        *fetcher
-	hazards  repository.HazardWriter
-	rejected repository.RejectedRepository
-	cursors  repository.CursorRepository
-	overlap  time.Duration
-	grace    time.Duration
-	log      *slog.Logger
-	now      func() time.Time
+	f       *fetcher
+	hazards repository.HazardWriter
+	dlq     repository.UnprocessedWriter
+	cursors repository.CursorRepository
+	overlap time.Duration
+	grace   time.Duration
+	log     *slog.Logger
+	now     func() time.Time
 
 	warnings map[string]map[string]cachedWarning
 	pending  map[string]pendingEvent
@@ -49,7 +48,7 @@ type seismicMeta struct {
 
 func newBMKGPoller(f *fetcher, d Deps, cfg Config) *bmkgPoller {
 	return &bmkgPoller{
-		f: f, hazards: d.Hazards, rejected: d.Rejected, cursors: d.Cursors,
+		f: f, hazards: d.Hazards, dlq: d.Unprocessed, cursors: d.Cursors,
 		overlap: cfg.CursorOverlap, grace: cfg.TsunamiGrace, log: d.Log, now: d.Now,
 		warnings: map[string]map[string]cachedWarning{},
 		pending:  map[string]pendingEvent{},
@@ -71,19 +70,18 @@ func (p *bmkgPoller) cycle(ctx context.Context) error {
 		since = &s
 	}
 
+	rec := newRecorder(p.dlq, p.log, model.SourceBMKG, now)
+
 	// 1. TsunamiWarning
-	body, err := p.f.get(ctx, "/tsunami-warnings", since)
-	if err != nil {
-		return err
-	}
+	body, err := p.f.get(ctx, "/tsunami-warnings", sinceQuery(since))
 	var rawWarnings []json.RawMessage
-	if err := json.Unmarshal(body, &rawWarnings); err != nil {
-		return fmt.Errorf("tsunami-warnings: respons bukan array JSON: %w", err)
+	if err := rec.decode(ctx, mapper.EndpointTsunamiWarnings, body, err, &rawWarnings); err != nil {
+		return err
 	}
 	for _, raw := range rawWarnings {
 		w, err := mapper.ParseTsunamiWarning(raw)
 		if err != nil {
-			p.reject(ctx, mapper.EndpointTsunamiWarnings, raw, err, now)
+			rec.park(ctx, mapper.EndpointTsunamiWarnings, raw, err)
 			continue
 		}
 		byEvent := p.warnings[w.RelatedEventID]
@@ -101,13 +99,10 @@ func (p *bmkgPoller) cycle(ctx context.Context) error {
 	}
 
 	// 2. SeismicEvent
-	body, err = p.f.get(ctx, "/seismic-events", since)
-	if err != nil {
-		return err
-	}
+	body, err = p.f.get(ctx, "/seismic-events", sinceQuery(since))
 	var rawEvents []json.RawMessage
-	if err := json.Unmarshal(body, &rawEvents); err != nil {
-		return fmt.Errorf("seismic-events: respons bukan array JSON: %w", err)
+	if err := rec.decode(ctx, mapper.EndpointSeismicEvents, body, err, &rawEvents); err != nil {
+		return err
 	}
 
 	newCursor := cursor
@@ -126,7 +121,7 @@ func (p *bmkgPoller) cycle(ctx context.Context) error {
 		}
 		if meta.EventID == "" || terr != nil {
 			_, err := mapper.Seismic(raw, nil, now)
-			p.reject(ctx, mapper.EndpointSeismicEvents, raw, err, now)
+			rec.park(ctx, mapper.EndpointSeismicEvents, raw, err)
 			continue
 		}
 		pe, wasPending := candidates[meta.EventID]
@@ -156,13 +151,17 @@ func (p *bmkgPoller) cycle(ctx context.Context) error {
 
 		h, err := mapper.Seismic(pe.raw, warnings, now)
 		if err != nil {
-			p.reject(ctx, mapper.EndpointSeismicEvents, pe.raw, err, now)
+			rec.park(ctx, mapper.EndpointSeismicEvents, pe.raw, err)
 			continue
 		}
 		outcome, err := p.hazards.SaveHazard(ctx, h)
 		if err != nil {
-			p.pending[id] = pe
-			return err
+			if err := rec.storeFailed(ctx, mapper.EndpointSeismicEvents, pe.raw, h, err); err != nil {
+				p.pending[id] = pe
+				return err
+			}
+			p.saved[id] = now // in the DLQ as retrying, with its warnings already mapped in
+			continue
 		}
 		p.saved[id] = now
 		if outcome == repository.OutcomeCreated {
@@ -179,6 +178,9 @@ func (p *bmkgPoller) cycle(ctx context.Context) error {
 		if pe.occurredAt.Before(newCursor) {
 			newCursor = pe.occurredAt
 		}
+	}
+	if rec.err != nil {
+		return rec.err
 	}
 	if !newCursor.IsZero() && (!found || !newCursor.Equal(cursor)) {
 		for _, ep := range []string{mapper.EndpointSeismicEvents, mapper.EndpointTsunamiWarnings} {
@@ -215,19 +217,5 @@ func (p *bmkgPoller) evict(now time.Time) {
 		if now.Sub(at) > cacheTTL {
 			delete(p.saved, id)
 		}
-	}
-}
-
-func (p *bmkgPoller) reject(ctx context.Context, endpoint string, raw json.RawMessage, cause error, now time.Time) {
-	saveRejected(ctx, p.rejected, p.log, model.SourceBMKG, endpoint, raw, cause, now)
-}
-
-func saveRejected(ctx context.Context, repo repository.RejectedRepository, log *slog.Logger,
-	source model.Source, endpoint string, raw json.RawMessage, cause error, now time.Time) {
-	r := mapper.Rejected(source, endpoint, raw, cause, now)
-	log.Warn("record_rejected", "correlation_id", correlation.From(ctx), "source", string(source),
-		"endpoint", endpoint, "source_ref_id", r.SourceRefID, "reason", r.Reason)
-	if err := repo.SaveRejected(ctx, r); err != nil {
-		log.Error("rejected_save_failed", "correlation_id", correlation.From(ctx), "error", err.Error())
 	}
 }

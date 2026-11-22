@@ -1,0 +1,171 @@
+openapi: 3.1.0
+info:
+  title: Aggregator Ops API
+  version: 0.1.0
+  description: |
+    Pesan gagal (unprocessed) dan replay-nya. Hanya client-api yang memegang OPS_TOKEN; token audit
+    asisten tidak bisa memanggilnya. client-api membuka API ini untuk klien bnpb-ops di /unprocessed.
+    Hanya metadata pesan yang dikembalikan, tidak pernah payload.
+    Galat memakai bentuk yang sama dengan Audit API: {"error": {"code", "message"}}.
+servers:
+  - url: http://localhost:8085
+  - url: http://aggregator:8080
+security:
+  - OpsToken: []
+paths:
+  /internal/unprocessed:
+    get:
+      operationId: opsUnprocessed
+      description: Pesan berstatus retrying atau parked, sama dengan /internal/audit/unprocessed. Pesan yang sudah pulih tidak muncul.
+      parameters:
+        - $ref: '#/components/parameters/UnprocessedSource'
+        - name: since
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UnprocessedPage' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /internal/unprocessed/replay:
+    post:
+      operationId: requestReplay
+      description: |
+        Memutar ulang pesan parked dari source itu lewat mapper dengan aturan adaptasi pod yang menerima permintaan.
+        Selama masih ada job queued atau running untuk source itu, job yang sama dikembalikan.
+      parameters:
+        - name: source
+          in: query
+          required: true
+          description: Hanya PVMBG yang bisa di-replay; source lain menghasilkan 400.
+          schema: { type: string, enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI] }
+        - name: X-Requested-By
+          in: header
+          required: false
+          description: Siapa yang meminta (subject JWT dari client-api), maksimal 128 karakter. Kosong berarti ops-token.
+          schema: { type: string }
+      responses:
+        '202':
+          description: Job diterima
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, status]
+                properties:
+                  job_id: { type: string, format: uuid }
+                  status: { $ref: '#/components/schemas/ReplayStatus' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /internal/unprocessed/replay/{job_id}:
+    get:
+      operationId: getReplayJob
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReplayJob' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    OpsToken:
+      type: http
+      scheme: bearer
+      description: Nilai dari env OPS_TOKEN.
+  parameters:
+    UnprocessedSource:
+      name: source
+      in: query
+      required: false
+      description: Selain empat sumber bahaya, TIM_LAPANGAN (topic field-reports) dan INTERNAL (consumer hazard-events, lewat topic unprocessed).
+      schema: { type: string, enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI, TIM_LAPANGAN, INTERNAL] }
+  schemas:
+    UnprocessedMessage:
+      type: object
+      required: [message_id, source, received_at, reason, retryable, attempts, status]
+      properties:
+        message_id: { type: string }
+        source:
+          type: string
+          description: |
+            Sumber hazard (BMKG, PVMBG, SATELIT, SENSOR_PANTAI) atau TIM_LAPANGAN untuk record topic field-reports
+            yang tidak bisa disimpan (endpoint field-reports/<partition>/<offset>). Filter source belum menerima TIM_LAPANGAN.
+        received_at: { type: string, format: date-time }
+        reason:
+          type: string
+          description: |
+            "<kode>: <detail>", misalnya schema_incompatible: alert_level missing. Untuk TIM_LAPANGAN, idempotency_conflict
+            berarti Idempotency-Key yang sama dikirim dengan body lain; laporan pertama yang disimpan.
+        retryable: { type: boolean }
+        attempts: { type: integer }
+        status: { type: string, enum: [retrying, parked] }
+    UnprocessedPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/UnprocessedMessage' }
+        next_cursor: { type: [string, 'null'] }
+    ReplayStatus:
+      type: string
+      enum: [queued, running, done, failed]
+    ReplayJob:
+      type: object
+      required: [job_id, source, status, requested_by, adaptations, cutoff, selected, recovered, still_parked,
+        handed_to_retry, not_replayable, error, created_at, started_at, finished_at]
+      properties:
+        job_id: { type: string, format: uuid }
+        source: { type: string }
+        status: { $ref: '#/components/schemas/ReplayStatus' }
+        requested_by: { type: string }
+        adaptations:
+          type: string
+          description: Aturan adaptasi pod yang menerima permintaan. Job hanya dijalankan pod dengan aturan yang sama.
+        cutoff: { type: string, format: date-time }
+        selected: { type: integer }
+        recovered: { type: integer }
+        still_parked: { type: integer }
+        handed_to_retry: { type: integer }
+        not_replayable: { type: integer }
+        error: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+  responses:
+    Error:
+      description: Galat
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: object
+                required: [code, message]
+                properties:
+                  code: { type: string, enum: [bad_request, unauthorized, not_found, unavailable, internal] }
+                  message: { type: string }

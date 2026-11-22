@@ -1,0 +1,7 @@
+node-c
+6.12.48+deb13-amd64
+2
+               total        used        free      shared  buff/cache   available
+Mem:           2.4Gi       358Mi       1.4Gi       624Ki       854Mi       2.1Gi
+Swap:             0B          0B          0B
+100.126.91.125

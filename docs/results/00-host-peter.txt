@@ -1,0 +1,24 @@
+﻿
+
+Name                      : AMD Ryzen 7 5800HS with Radeon Graphics        
+NumberOfCores             : 8
+NumberOfLogicalProcessors : 16
+
+
+
+
+
+Manufacturer : ASUSTeK COMPUTER INC.
+Model        : VivoBook_ASUSLaptop M1403QA_M1403QA
+RAM_GB       : 15.4
+
+
+
+
+
+Caption : Microsoft Windows 11 Home Single Language
+Version : 10.0.22631
+
+
+
+

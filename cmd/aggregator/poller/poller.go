@@ -12,13 +12,17 @@ import (
 )
 
 type Deps struct {
-	Hazards   repository.HazardWriter
-	Rejected  repository.RejectedRepository
-	Cursors   repository.CursorRepository
-	Statuses  repository.SourceStatusRepository
-	Volcanoes repository.VolcanoRefRepository
-	Log       *slog.Logger
-	Now       func() time.Time
+	Hazards     repository.HazardWriter
+	Unprocessed repository.UnprocessedWriter
+	Cursors     repository.CursorRepository
+	Statuses    repository.SourceStatusRepository
+	Volcanoes   repository.VolcanoRefRepository
+	Log         *slog.Logger
+	Now         func() time.Time
+
+	// Used by the Sensor Pantai poller.
+	Batch     repository.HazardBatchStore
+	Positions repository.StreamCursorRepository
 }
 
 type Poller struct {
@@ -35,18 +39,31 @@ func New(cfg Config, d Deps) *Poller {
 	pvmbgFetch := newFetcher(model.SourcePVMBG, cfg.PVMBGURL, cfg.PVMBGTimeout,
 		func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+cfg.PVMBGToken) }, d.Log, d.Now)
 
-	return &Poller{runners: []*runner{
+	runners := []*runner{
 		{
 			source: model.SourceBMKG, interval: cfg.PollInterval,
 			breaker:  NewBreaker(cfg.BreakerFailures, cfg.BreakerOpenFor),
-			statuses: d.Statuses, cycle: newBMKGPoller(bmkgFetch, d, cfg).cycle, log: d.Log, now: d.Now,
+			statuses: d.Statuses, cycle: sourceCycle(newBMKGPoller(bmkgFetch, d, cfg).cycle), log: d.Log, now: d.Now,
 		},
 		{
 			source: model.SourcePVMBG, interval: cfg.PollInterval,
 			breaker:  NewBreaker(cfg.BreakerFailures, cfg.BreakerOpenFor),
-			statuses: d.Statuses, cycle: newPVMBGPoller(pvmbgFetch, d, cfg).cycle, log: d.Log, now: d.Now,
+			statuses: d.Statuses, cycle: sourceCycle(newPVMBGPoller(pvmbgFetch, d, cfg).cycle), log: d.Log, now: d.Now,
 		},
-	}}
+	}
+	if cfg.SensorPantaiURL != "" {
+		sensorFetch := newFetcher(model.SourceSensorPantai, cfg.SensorPantaiURL, cfg.SensorPantaiTimeout,
+			func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+cfg.SensorPantaiToken) }, d.Log, d.Now)
+		sensor := newSensorPantaiPoller(sensorFetch, d)
+		breaker := NewBreaker(5, 5*time.Second)
+		breaker.maxOpen = time.Minute
+		runners = append(runners, &runner{
+			source: model.SourceSensorPantai, interval: cfg.SensorPantaiPollInterval,
+			breaker: breaker, statuses: d.Statuses, cycle: sensor.cycle, sensor: sensor,
+			log: d.Log, now: d.Now,
+		})
+	}
+	return &Poller{runners: runners}
 }
 
 func (p *Poller) Run(ctx context.Context) {

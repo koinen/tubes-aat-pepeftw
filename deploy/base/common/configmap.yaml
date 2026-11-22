@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bnpb-common
+  labels:
+    bnpb.io/stage: infra
+data:
+  LOG_LEVEL: INFO
+  KAFKA_BROKERS: kafka:9092
+  KAFKA_TOPIC_HAZARD_EVENTS: hazard-events
+  KAFKA_TOPIC_AUTH_REVOCATIONS: auth-revocations
+  KAFKA_TOPIC_FIELD_REPORTS: field-reports
+  KAFKA_TOPIC_UNPROCESSED: unprocessed
+  KAFKA_TOPIC_FIELD_TEAM_RECEIPTS: field-team-receipts
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318

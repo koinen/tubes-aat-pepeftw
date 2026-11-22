@@ -9,6 +9,7 @@ const (
 	CodeForbiddenField      = "FORBIDDEN_FIELD"
 	CodeNotFound            = "NOT_FOUND"
 	CodeRateLimited         = "RATE_LIMITED"
+	CodeOverloaded          = "overloaded"
 	CodeUpstreamUnavailable = "UPSTREAM_UNAVAILABLE"
 	CodeInternal            = "INTERNAL"
 )

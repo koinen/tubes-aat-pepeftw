@@ -3,9 +3,16 @@ info:
   title: BNPB Client API
   version: 0.1.0
   description: |
-    API publik untuk Media, Tim Lapangan, dan BNPB Ops. Read-only.
+    API publik untuk Media, Tim Lapangan, dan BNPB Ops.
     Data diambil dari Aggregator Internal API, lalu field disaring sesuai scope token.
+    Klaim scope berisi daftar scope dipisah spasi.
     Scope hazard:read:summary hanya menerima field RINGKASAN. Scope hazard:read:raw menerima semua field.
+    Pesan gagal (/unprocessed) hanya untuk BNPB Internal Ops: scope hazard:read:unprocessed untuk melihat,
+    hazard:replay:unprocessed untuk replay.
+    Laporan lapangan (POST /field-reports) hanya untuk Tim Lapangan: scope field-report:write.
+    Body request di semua route dibatasi 64 KiB; yang lebih besar menghasilkan 413.
+    Setelah JWT diverifikasi, request yang tidak memperoleh slot langsung mendapat 503
+    dengan kode overloaded dan Retry-After bernilai 2. Batas laju per subject tetap menghasilkan 429 RATE_LIMITED.
     Tidak pernah mengembalikan 500 pada skenario outage PVMBG dan tidak pernah menggantung.
 servers:
   - url: http://localhost:8080
@@ -21,6 +28,7 @@ paths:
         - $ref: './common.yaml#/components/parameters/HazardTypeQuery'
         - $ref: './common.yaml#/components/parameters/Since'
         - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/PageCursor'
         - $ref: '#/components/parameters/Fields'
       responses:
         '200':
@@ -32,7 +40,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [data, sources]
+                required: [data, sources, next_cursor, partial, unavailable_units]
                 properties:
                   data:
                     type: array
@@ -40,6 +48,16 @@ paths:
                       $ref: '#/components/schemas/HazardView'
                   sources:
                     $ref: './common.yaml#/components/schemas/SourcesMap'
+                  next_cursor:
+                    type: [string, 'null']
+                    description: null pada halaman terakhir.
+                  partial:
+                    type: boolean
+                    description: true bila sebagian unit penyimpanan tidak terjangkau sehingga daftar bisa belum lengkap.
+                  unavailable_units:
+                    type: array
+                    items:
+                      type: string
         '400':
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
@@ -49,7 +67,7 @@ paths:
         '429':
           $ref: './common.yaml#/components/responses/RateLimited'
         '503':
-          $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+          $ref: '#/components/responses/CapacityOrUpstreamUnavailable'
   /hazards/{hazard_id}:
     get:
       operationId: getHazard
@@ -82,7 +100,7 @@ paths:
         '429':
           $ref: './common.yaml#/components/responses/RateLimited'
         '503':
-          $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+          $ref: '#/components/responses/CapacityOrUpstreamUnavailable'
   /sources/status:
     get:
       operationId: getSourcesStatus
@@ -101,13 +119,184 @@ paths:
                 required: [data]
                 properties:
                   data:
-                    $ref: './common.yaml#/components/schemas/SourcesMap'
+                    $ref: './common.yaml#/components/schemas/SourcesStatusMap'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
         '429':
           $ref: './common.yaml#/components/responses/RateLimited'
         '503':
-          $ref: './common.yaml#/components/responses/UpstreamUnavailable'
+          $ref: '#/components/responses/CapacityOrUpstreamUnavailable'
+  /unprocessed:
+    get:
+      operationId: listUnprocessed
+      description: |
+        Pesan gagal (retrying atau parked) untuk BNPB Internal Ops. Butuh scope hazard:read:unprocessed (hanya bnpb-ops).
+        Hanya metadata, tidak pernah payload. Diteruskan ke aggregator GET /internal/unprocessed (api/ops.yaml).
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - name: source
+          in: query
+          required: false
+          schema:
+            $ref: './common.yaml#/components/schemas/UnprocessedSource'
+        - name: since
+          in: query
+          required: false
+          description: RFC 3339 UTC. Pesan dengan received_at >= since.
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: './ops.yaml#/components/schemas/UnprocessedPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenScope'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/OpsUnavailable'
+  /unprocessed/replay:
+    post:
+      operationId: requestReplay
+      description: |
+        Memutar ulang pesan parked setelah aturan adaptasi dideklarasikan. Butuh scope hazard:replay:unprocessed (hanya bnpb-ops).
+        Subject JWT dicatat sebagai requested_by. Selama masih ada job aktif untuk source itu, job yang sama dikembalikan.
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - name: source
+          in: query
+          required: true
+          description: Hanya PVMBG yang bisa di-replay; source lain menghasilkan 400.
+          schema:
+            $ref: './common.yaml#/components/schemas/Source'
+      responses:
+        '202':
+          description: Job diterima
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, status]
+                properties:
+                  job_id: { type: string, format: uuid }
+                  status: { $ref: './ops.yaml#/components/schemas/ReplayStatus' }
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenScope'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/OpsUnavailable'
+  /unprocessed/replay/{job_id}:
+    get:
+      operationId: getReplayJob
+      description: Status dan hitungan sebuah job replay. Butuh scope hazard:replay:unprocessed.
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - name: job_id
+          in: path
+          required: true
+          description: UUID; selain UUID menghasilkan 400.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: './ops.yaml#/components/schemas/ReplayJob'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenScope'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/OpsUnavailable'
+  /field-reports:
+    post:
+      operationId: submitFieldReport
+      description: |
+        Mengirim laporan lapangan. Butuh scope field-report:write (hanya field-team).
+        202 baru dikirim setelah laporan tersimpan di topic field-reports pada semua replika in-sync (acks=all),
+        jadi laporan yang mendapat 202 tidak hilang. Aggregator menyimpannya kemudian, satu baris per (subject, Idempotency-Key).
+        Kirim ulang dengan Idempotency-Key yang sama setelah 503, 429, atau timeout: report_id-nya sama dan laporan
+        tetap tersimpan satu kali. Body berbeda dengan key yang sama tidak menimpa laporan pertama; body itu diparkir
+        di DLQ (source TIM_LAPANGAN, kode idempotency_conflict).
+        Body yang tidak lolos validasi (UTF-8 tidak valid, nesting lebih dari 32, JSON terpotong, field tak dikenal,
+        field wajib hilang atau di luar rentang) menghasilkan 400 dan tidak dikirim ke mana pun.
+      parameters:
+        - $ref: './common.yaml#/components/parameters/CorrelationId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Kunci klien untuk satu laporan. 1–128 karakter ASCII yang terlihat (0x21–0x7E); selain itu 400.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[\x21-\x7E]{1,128}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FieldReportRequest'
+      responses:
+        '202':
+          description: Laporan diterima Kafka dan akan disimpan aggregator.
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldReportAccepted'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenScope'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: './common.yaml#/components/responses/RateLimited'
+        '503':
+          description: |
+            overloaded. Client API tidak memiliki slot untuk request ini (Retry-After bernilai 2).
+            UPSTREAM_UNAVAILABLE. Kafka tidak mengonfirmasi laporan dalam 5 detik. Laporan mungkin tetap tertulis;
+            kirim ulang dengan Idempotency-Key yang sama setelah Retry-After.
+          headers:
+            X-Correlation-ID:
+              $ref: './common.yaml#/components/headers/CorrelationId'
+            Retry-After:
+              $ref: './common.yaml#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/ErrorResponse'
   /health:
     get:
       operationId: health
@@ -173,7 +362,101 @@ components:
         attributes:
           type: object
           additionalProperties: true
+    FieldReportRequest:
+      type: object
+      additionalProperties: false
+      required: [latitude, longitude, reported_at, description]
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        reported_at:
+          type: string
+          format: date-time
+          description: RFC 3339.
+        description:
+          type: string
+          minLength: 1
+          description: Paling banyak 4096 byte UTF-8.
+        hazard_id:
+          type: string
+          format: uuid
+          description: Opsional. Hanya format UUID yang dicek, bukan keberadaan hazard-nya.
+      example:
+        latitude: -7.54
+        longitude: 110.44
+        reported_at: '2026-11-18T03:00:00Z'
+        description: Abu vulkanik turun di Dusun Kaliurang
+        hazard_id: 7d0e6f1c-0d7b-5c55-9a0e-5f0a1d2b3c4d
+    FieldReportAccepted:
+      type: object
+      required: [report_id, status]
+      properties:
+        report_id:
+          type: string
+          format: uuid
+          description: UUIDv5 dari subject JWT dan Idempotency-Key; kiriman ulang dengan key yang sama mendapat report_id yang sama.
+        status:
+          type: string
+          enum: [accepted]
   responses:
+    PayloadTooLarge:
+      description: VALIDATION_ERROR dengan status 413. Body lebih dari 64 KiB; ditolak sebelum dibaca.
+      headers:
+        X-Correlation-ID:
+          $ref: './common.yaml#/components/headers/CorrelationId'
+      content:
+        application/json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ErrorResponse'
+    ForbiddenScope:
+      description: FORBIDDEN. Token sah, tetapi tidak memegang scope yang dibutuhkan route ini.
+      headers:
+        X-Correlation-ID:
+          $ref: './common.yaml#/components/headers/CorrelationId'
+      content:
+        application/json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: FORBIDDEN
+              message: 'scope hazard:read:unprocessed diperlukan'
+              correlation_id: 7f3c9a2e-4b1d-4e8a-9c2f-1a2b3c4d5e6f
+    CapacityOrUpstreamUnavailable:
+      description: |
+        overloaded. Client API tidak memiliki slot untuk request ini (Retry-After bernilai 2).
+        UPSTREAM_UNAVAILABLE. Dependency tidak dapat dijangkau dan tidak ada data cadangan.
+      headers:
+        X-Correlation-ID:
+          $ref: './common.yaml#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: './common.yaml#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ErrorResponse'
+    OpsUnavailable:
+      description: |
+        overloaded. Client API tidak memiliki slot untuk request ini (Retry-After bernilai 2).
+        UPSTREAM_UNAVAILABLE. Aggregator atau penyimpanannya tidak terjangkau (dengan Retry-After), atau akses ops
+        belum dikonfigurasi / OPS_TOKEN ditolak aggregator (tanpa Retry-After, karena mencoba lagi tidak menolong).
+      headers:
+        X-Correlation-ID:
+          $ref: './common.yaml#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: './common.yaml#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ErrorResponse'
     ForbiddenField:
       description: FORBIDDEN_FIELD. Token sah, tetapi scope tidak mengizinkan field yang diminta.
       headers:

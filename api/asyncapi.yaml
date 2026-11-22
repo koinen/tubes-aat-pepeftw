@@ -42,6 +42,36 @@ channels:
         topicConfiguration:
           retention.ms: 600000
         bindingVersion: 0.5.0
+  fieldReports:
+    address: field-reports
+    description: Laporan lapangan yang sudah diterima client-api (202). Aggregator menyimpannya sekali per Idempotency-Key; value yang tidak bisa dibaca diparkir sebagai pesan gagal TIM_LAPANGAN.
+    messages:
+      FieldReportMessage:
+        $ref: '#/components/messages/FieldReportMessage'
+    bindings:
+      kafka:
+        partitions: 3
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 604800000
+        bindingVersion: 0.5.0
+  unprocessed:
+    address: unprocessed
+    description: |
+      Value dari hazard-events yang tidak bisa dibaca consumer (UTF-8 tidak valid, nesting terlalu dalam, JSON rusak, skema tidak cocok).
+      Value diteruskan apa adanya; asal dan alasannya ada di header. Consumer commit offset hazard-events hanya setelah produce ke topic ini berhasil.
+      Aggregator memarkirnya sebagai pesan gagal INTERNAL, satu baris per record asal walaupun beberapa consumer group meneruskannya.
+    messages:
+      UnprocessedMessage:
+        $ref: '#/components/messages/UnprocessedMessage'
+    bindings:
+      kafka:
+        partitions: 3
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 604800000
+          max.message.bytes: 2097152
+        bindingVersion: 0.5.0
 operations:
   publishHazardEvent:
     action: send
@@ -73,6 +103,26 @@ operations:
     summary: client-api, group id client-api-revocations
     channel:
       $ref: '#/channels/authRevocations'
+  publishFieldReport:
+    action: send
+    summary: client-api, POST /field-reports
+    channel:
+      $ref: '#/channels/fieldReports'
+  consumeFieldReport:
+    action: receive
+    summary: aggregator (setiap pod), group id aggregator-field-reports
+    channel:
+      $ref: '#/channels/fieldReports'
+  forwardUnprocessed:
+    action: send
+    summary: dashboard-updater, notifier, audit-log; untuk value hazard-events yang tidak bisa dibaca
+    channel:
+      $ref: '#/channels/unprocessed'
+  consumeUnprocessed:
+    action: receive
+    summary: aggregator (setiap pod), group id aggregator-unprocessed
+    channel:
+      $ref: '#/channels/unprocessed'
 components:
   messages:
     HazardMessage:
@@ -131,6 +181,60 @@ components:
             type: string
             format: uuid
             description: jti
+          bindingVersion: 0.5.0
+    FieldReportMessage:
+      name: FieldReportMessage
+      headers:
+        $ref: '#/components/schemas/KafkaHeaders'
+      payload:
+        type: object
+        required: [report_id, subject, idempotency_key, accepted_at, report]
+        properties:
+          report_id:
+            type: string
+            format: uuid
+            description: UUIDv5(namespace tetap, subject + "\x00" + idempotency_key)
+          subject: { type: string }
+          idempotency_key: { type: string, minLength: 1, maxLength: 128 }
+          accepted_at: { type: string, format: date-time }
+          correlation_id: { type: string }
+          report:
+            type: object
+            required: [latitude, longitude, reported_at, description]
+            properties:
+              latitude: { type: number, minimum: -90, maximum: 90 }
+              longitude: { type: number, minimum: -180, maximum: 180 }
+              reported_at: { type: string, format: date-time }
+              description: { type: string, maxLength: 4096 }
+              hazard_id: { type: string, format: uuid }
+      bindings:
+        kafka:
+          key:
+            type: string
+            format: uuid
+            description: report_id
+          bindingVersion: 0.5.0
+    UnprocessedMessage:
+      name: UnprocessedMessage
+      headers:
+        type: object
+        required: [topic, partition, offset, reason, consumer]
+        properties:
+          topic: { type: string, description: Topic asal, misalnya hazard-events. }
+          partition: { type: string, description: Partisi asal, desimal. }
+          offset: { type: string, description: Offset asal, desimal. }
+          reason:
+            type: string
+            description: '"<code>: <detail>"; code salah satu invalid_utf8, too_deep, malformed_json, schema_incompatible.'
+          consumer: { type: string, description: Group id consumer yang meneruskan. }
+          correlation_id: { type: string, description: Disalin dari record asal bila ada. }
+          traceparent: { type: string, description: Disalin dari record asal bila ada. }
+      payload:
+        description: Value record asal, byte per byte. Bisa berupa apa saja, termasuk bukan JSON.
+      bindings:
+        kafka:
+          key:
+            description: Key record asal.
           bindingVersion: 0.5.0
   schemas:
     KafkaHeaders:

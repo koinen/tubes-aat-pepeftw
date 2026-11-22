@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-scripts
+  labels:
+    bnpb.io/stage: infra
+data:
+  start.sh: |
+    set -e
+    domain="kafka-headless.${POD_NAMESPACE}.svc.cluster.local"
+    export KAFKA_NODE_ID="${HOSTNAME##*-}"
+    export KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.${domain}:9092"
+    voters=""
+    i=0
+    while [ "$i" -lt "$BNPB_KAFKA_REPLICAS" ]
+    do
+      entry="${i}@kafka-${i}.${domain}:9093"
+      if [ -z "$voters" ]
+      then
+        voters="$entry"
+      else
+        voters="${voters},${entry}"
+      fi
+      i=$((i + 1))
+    done
+    export KAFKA_CONTROLLER_QUORUM_VOTERS="$voters"
+    exec /etc/kafka/docker/run
+  topics.sh: |
+    set -e
+    topics=/opt/kafka/bin/kafka-topics.sh
+    until "$topics" --bootstrap-server "$KAFKA_BROKERS" --list > /dev/null 2>&1
+    do
+      echo "waiting for kafka at $KAFKA_BROKERS"
+      sleep 3
+    done
+    "$topics" --bootstrap-server "$KAFKA_BROKERS" --create --if-not-exists \
+      --topic "$KAFKA_TOPIC_HAZARD_EVENTS" --partitions 3 \
+      --replication-factor "$TOPIC_REPLICATION_FACTOR" \
+      --config retention.ms=604800000 \
+      --config min.insync.replicas="$TOPIC_MIN_INSYNC_REPLICAS"
+    "$topics" --bootstrap-server "$KAFKA_BROKERS" --create --if-not-exists \
+      --topic "$KAFKA_TOPIC_AUTH_REVOCATIONS" --partitions 1 \
+      --replication-factor "$TOPIC_REPLICATION_FACTOR" \
+      --config retention.ms=600000 \
+      --config min.insync.replicas="$TOPIC_MIN_INSYNC_REPLICAS"
+    "$topics" --bootstrap-server "$KAFKA_BROKERS" --create --if-not-exists \
+      --topic "$KAFKA_TOPIC_FIELD_REPORTS" --partitions 3 \
+      --replication-factor "$TOPIC_REPLICATION_FACTOR" \
+      --config retention.ms=604800000 \
+      --config min.insync.replicas="$TOPIC_MIN_INSYNC_REPLICAS"
+    # Values our hazard-events consumers could not read. 2 MiB, so a forwarded ~1 MiB record plus
+    # its headers always fits.
+    "$topics" --bootstrap-server "$KAFKA_BROKERS" --create --if-not-exists \
+      --topic "$KAFKA_TOPIC_UNPROCESSED" --partitions 3 \
+      --replication-factor "$TOPIC_REPLICATION_FACTOR" \
+      --config retention.ms=604800000 \
+      --config max.message.bytes=2097152 \
+      --config min.insync.replicas="$TOPIC_MIN_INSYNC_REPLICAS"
+    "$topics" --bootstrap-server "$KAFKA_BROKERS" --create --if-not-exists \
+      --topic "$KAFKA_TOPIC_FIELD_TEAM_RECEIPTS" --partitions 3 \
+      --replication-factor "$TOPIC_REPLICATION_FACTOR" \
+      --config retention.ms=604800000 \
+      --config min.insync.replicas="$TOPIC_MIN_INSYNC_REPLICAS"
+    "$topics" --bootstrap-server "$KAFKA_BROKERS" --describe

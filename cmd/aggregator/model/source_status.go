@@ -19,10 +19,11 @@ const (
 )
 
 type SourceStatus struct {
-	Source        Source       `json:"source"`
-	Status        Status       `json:"status"`
-	BreakerState  BreakerState `json:"breaker_state"`
-	LastSuccessAt *time.Time   `json:"last_success_at"`
-	StaleSince    *time.Time   `json:"stale_since"`
-	LastError     string       `json:"last_error,omitempty"`
+	Source         Source           `json:"source"`
+	Status         Status           `json:"status"`
+	BreakerState   BreakerState     `json:"breaker_state"`
+	LastSuccessAt  *time.Time       `json:"last_success_at"`
+	StaleSince     *time.Time       `json:"stale_since"`
+	LastError      string           `json:"last_error,omitempty"`
+	StationSilence map[string]*bool `json:"station_silence,omitempty"`
 }

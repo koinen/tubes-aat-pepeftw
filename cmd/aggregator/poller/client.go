@@ -1,7 +1,9 @@
 package poller
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,11 +13,16 @@ import (
 
 	"tubes-aat-pepeftw/cmd/aggregator/correlation"
 	"tubes-aat-pepeftw/cmd/aggregator/model"
+	"tubes-aat-pepeftw/cmd/aggregator/unprocessed"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
+// maxBodyBytes is the largest response body decoded. A larger one is streamed through a hash and parked as too_large.
 const maxBodyBytes = 10 << 20
 
 type fetcher struct {
+	maxBody int64
 	source  model.Source
 	baseURL string
 	client  *http.Client
@@ -26,10 +33,19 @@ type fetcher struct {
 }
 
 func newFetcher(source model.Source, baseURL string, timeout time.Duration, auth func(*http.Request), log *slog.Logger, now func() time.Time) *fetcher {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	client := &http.Client{Transport: telemetry.Transport(transport)}
+	if source == model.SourceSensorPantai {
+		transport.MaxConnsPerHost = 2
+		// A reused connection can cause net/http to transparently resend an idempotent GET.
+		transport.DisableKeepAlives = true
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	return &fetcher{
+		maxBody: maxBodyBytes,
 		source:  source,
 		baseURL: baseURL,
-		client:  &http.Client{Transport: http.DefaultTransport.(*http.Transport).Clone()},
+		client:  client,
 		timeout: timeout,
 		auth:    auth,
 		log:     log,
@@ -37,10 +53,18 @@ func newFetcher(source model.Source, baseURL string, timeout time.Duration, auth
 	}
 }
 
-func (f *fetcher) get(ctx context.Context, path string, since *time.Time) ([]byte, error) {
+// sinceQuery is the query for a poll from since, or no query when since is nil.
+func sinceQuery(since *time.Time) url.Values {
+	if since == nil {
+		return nil
+	}
+	return url.Values{"since": {since.UTC().Format(time.RFC3339)}}
+}
+
+func (f *fetcher) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	u := f.baseURL + path
-	if since != nil {
-		u += "?since=" + url.QueryEscape(since.UTC().Format(time.RFC3339))
+	if len(query) > 0 {
+		u += "?" + query.Encode()
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, f.timeout)
@@ -66,7 +90,7 @@ func (f *fetcher) get(ctx context.Context, path string, since *time.Time) ([]byt
 	}
 	defer resp.Body.Close()
 
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, f.maxBody+1))
 	level := slog.LevelInfo
 	if resp.StatusCode >= 300 || readErr != nil {
 		level = slog.LevelWarn
@@ -78,7 +102,36 @@ func (f *fetcher) get(ctx context.Context, path string, since *time.Time) ([]byt
 		return nil, fmt.Errorf("GET %s: read body: %w", path, readErr)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("GET %s: status %d", path, resp.StatusCode)
+		return body, &StatusError{Path: path, Code: resp.StatusCode}
+	}
+	if int64(len(body)) > f.maxBody {
+		return nil, f.oversized(path, body, resp.Body)
 	}
 	return body, nil
 }
+
+// oversized hashes the rest of an over-limit body without keeping it, and returns the *unprocessed.Oversized
+// that describes it, or the read error if the stream broke.
+func (f *fetcher) oversized(path string, head []byte, rest io.Reader) error {
+	h := sha256.New()
+	h.Write(head)
+	n, err := io.Copy(h, rest)
+	if err != nil {
+		return fmt.Errorf("GET %s: read oversized body: %w", path, err)
+	}
+	over := &unprocessed.Oversized{
+		Prefix: bytes.Clone(head[:min(len(head), unprocessed.PrefixSize)]),
+		Size:   int64(len(head)) + n,
+		Limit:  f.maxBody,
+	}
+	copy(over.SHA256[:], h.Sum(nil))
+	return over
+}
+
+// StatusError is a response outside 2xx.
+type StatusError struct {
+	Path string
+	Code int
+}
+
+func (e *StatusError) Error() string { return fmt.Sprintf("GET %s: status %d", e.Path, e.Code) }

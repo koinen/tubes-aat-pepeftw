@@ -1,0 +1,21 @@
+== rows in hazard_events
+  rows
+--------
+  7990
+(1 row)
+== ranges, replicas and leaseholders of hazard_events per node
+  k8s_node | crdb_node | replicas | leaseholders | total_ranges | pct_of_table_bytes
+-----------+-----------+----------+--------------+--------------+---------------------
+  node-a   |         1 |       35 |            9 |           46 |               78.9
+  node-b   |         4 |       36 |           19 |           46 |               80.4
+  node-c   |         3 |       35 |            2 |           46 |               76.4
+  node-d   |         2 |       32 |           16 |           46 |               64.3
+(4 rows)
+== store usage per node
+  k8s_node | crdb_node | live_mib | replicas_all_tables | leaseholders_all_tables
+-----------+-----------+----------+---------------------+--------------------------
+  node-a   |         1 |    245.5 |                 108 |                      25
+  node-b   |         4 |    241.2 |                 107 |                      50
+  node-c   |         3 |    170.3 |                 110 |                      12
+  node-d   |         2 |     13.9 |                 107 |                      44
+(4 rows)

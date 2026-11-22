@@ -1,0 +1,27 @@
+# manifest.yaml is the assistant's file, copied byte-for-byte. Everything we add goes here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-pantai
+  labels:
+    app: sensor-pantai
+    bnpb.io/stage: sensor
+spec:
+  template:
+    spec:
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+      containers:
+        - name: sensor
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 256Mi

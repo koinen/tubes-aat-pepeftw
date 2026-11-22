@@ -1,0 +1,3 @@
+Latihan "clock-skew": 1 langkah
+  - t+5s shift_clock role= nodes=any
+Permintaan 3933f679782b dikirim. Lihat hasil dengan: kubectl logs -n tester-agent -l app=tester-agent

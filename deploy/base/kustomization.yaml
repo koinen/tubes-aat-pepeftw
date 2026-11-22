@@ -1,0 +1,97 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sistem-informasi-kebencanaan-bnpb
+resources:
+  - namespace.yaml
+  - common/configmap.yaml
+  - kafka/configmap.yaml
+  - kafka/scripts.yaml
+  - kafka/services.yaml
+  - kafka/statefulset.yaml
+  - kafka/job-topics.yaml
+  - cockroachdb/scripts.yaml
+  - cockroachdb/services.yaml
+  - cockroachdb/statefulset.yaml
+  - cockroachdb/job-init.yaml
+  - auth-store/deployment.yaml
+  - auth-store/service.yaml
+  - client-api-store/deployment.yaml
+  - client-api-store/service.yaml
+  - networkpolicy/crdb.yaml
+  - networkpolicy/auth-store.yaml
+  - networkpolicy/client-api-store.yaml
+  - networkpolicy/sensor-pantai.yaml
+  - networkpolicy/field-team-receiver.yaml
+  - sensor-pantai/manifest.yaml
+  - sensor-pantai/service.yaml
+  - aggregator/rbac.yaml
+  - aggregator/configmap.yaml
+  - aggregator/job-migrate.yaml
+  - aggregator/deployment.yaml
+  - aggregator/service.yaml
+  - auth/configmap.yaml
+  - auth/deployment.yaml
+  - auth/service.yaml
+  - client-api/configmap.yaml
+  - client-api/deployment.yaml
+  - client-api/service.yaml
+  - notifier/configmap.yaml
+  - notifier/deployment.yaml
+  - notifier/service.yaml
+  - field-team-receiver/deployment.yaml
+  - field-team-receiver/service.yaml
+  - audit-log/configmap.yaml
+  - audit-log/deployment.yaml
+  - audit-log/service.yaml
+  - dashboard-updater/configmap.yaml
+  - dashboard-updater/deployment.yaml
+  - dashboard-updater/service.yaml
+  - analytics-dashboard/configmap.yaml
+  - analytics-dashboard/deployment.yaml
+  - analytics-dashboard/service.yaml
+  - bmkg-mock/configmap.yaml
+  - bmkg-mock/deployment.yaml
+  - bmkg-mock/service.yaml
+  - pvmbg-mock/configmap.yaml
+  - pvmbg-mock/deployment.yaml
+  - pvmbg-mock/service.yaml
+  - observability/prometheus-config.yaml
+  - observability/prometheus-rbac.yaml
+  - observability/prometheus.yaml
+  - observability/jaeger.yaml
+  - observability/grafana-provisioning.yaml
+  - observability/grafana.yaml
+configMapGenerator:
+  - name: grafana-dashboards
+    files:
+      - observability/dashboards/bnpb-services.json
+      - observability/dashboards/bnpb-satellite.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app: grafana
+        bnpb.io/stage: infra
+patches:
+  - path: sensor-pantai/patch.yaml
+  - target:
+      kind: Deployment
+      labelSelector: bnpb.io/stage=apps
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: scrape
+      spec:
+        template:
+          metadata:
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "8080"
+              prometheus.io/path: /metrics
+  - target:
+      kind: Deployment
+      name: field-team-receiver
+    patch: |-
+      - op: replace
+        path: /spec/template/metadata/annotations/prometheus.io~1port
+        value: "9090"

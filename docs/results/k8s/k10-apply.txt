@@ -1,0 +1,9 @@
+namespace/tester-agent created
+serviceaccount/tester-agent created
+role.rbac.authorization.k8s.io/tester-agent-coordination created
+rolebinding.rbac.authorization.k8s.io/tester-agent-coordination created
+role.rbac.authorization.k8s.io/tester-agent-app created
+rolebinding.rbac.authorization.k8s.io/tester-agent-app created
+clusterrole.rbac.authorization.k8s.io/tester-agent-nodes created
+clusterrolebinding.rbac.authorization.k8s.io/tester-agent-nodes created
+daemonset.apps/tester-agent created

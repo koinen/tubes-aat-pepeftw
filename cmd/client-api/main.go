@@ -9,19 +9,17 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	recoverer "github.com/gofiber/fiber/v3/middleware/recover"
 
 	"tubes-aat-pepeftw/cmd/client-api/internal/aggregator"
 	"tubes-aat-pepeftw/cmd/client-api/internal/auth"
 	"tubes-aat-pepeftw/cmd/client-api/internal/common"
 	"tubes-aat-pepeftw/cmd/client-api/internal/concurrency"
 	"tubes-aat-pepeftw/cmd/client-api/internal/config"
-	"tubes-aat-pepeftw/cmd/client-api/internal/hazard"
-	"tubes-aat-pepeftw/cmd/client-api/internal/health"
 	"tubes-aat-pepeftw/cmd/client-api/internal/kafka"
 	"tubes-aat-pepeftw/cmd/client-api/internal/ratelimit"
 	redisConn "tubes-aat-pepeftw/cmd/client-api/internal/redis"
-	"tubes-aat-pepeftw/cmd/client-api/internal/source"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 func main() {
@@ -33,6 +31,12 @@ func main() {
 	}
 
 	ctx := context.Background()
+	shutdownTracing, err := telemetry.Init(ctx, "client-api")
+	if err != nil {
+		logger.Error("tracing_init_failed", "error", err.Error())
+		os.Exit(1)
+	}
+	defer shutdownTracing(context.Background())
 
 	// --- 1. Redis Connection (Rate Limiting) ---
 	redisClient, err := redisConn.Connect(ctx, cfg.Redis)
@@ -43,6 +47,9 @@ func main() {
 
 	// --- 2. Upstream Aggregator Client ---
 	aggClient := aggregator.NewClient(cfg.Aggregator, logger)
+	if !aggClient.OpsConfigured() {
+		logger.Warn("ops_access_not_configured", "detail", "OPS_TOKEN is empty; /unprocessed routes return 503")
+	}
 
 	// --- 3. Fetch JWKS from Auth Service on Startup (with brief startup retry) ---
 	var jwks *auth.JWKS
@@ -73,35 +80,32 @@ func main() {
 	}
 	defer kafkaClient.Close()
 
-	// --- 5. Fiber Application Setup ---
-	onError := errorHandler(logger)
-	app := fiber.New(fiber.Config{ErrorHandler: onError})
+	// --- 5. Field-Report Producer (connects on the first report) ---
+	reports, err := kafka.NewFieldReportProducer(cfg.Kafka.Brokers, cfg.Kafka.FieldReportsTopic)
+	if err != nil {
+		log.Fatal("Failed to create field-report producer:", err)
+	}
+	defer reports.Close()
 
-	app.Use(common.CorrelationID, common.RequestLogger(logger, onError), recoverer.New())
-
-	// Health Check (Public, no auth, no rate limiting)
-	healthHandler := health.NewHandler(aggClient, true)
-	app.Get("/health", healthHandler.HealthCheck)
-
-	// Authentication & Rate Limiting Middlewares
+	// --- 6. Fiber Application Setup ---
 	verifier := auth.NewVerifier(jwks, cfg.Auth.JWTIssuer, cfg.Auth.JWTAudience, denylist)
 	limiter := ratelimit.New(redisClient, cfg.RateLimit)
-
-	// Protected Routes
-	capacity := concurrency.New(cfg.Concurrency.MaxRequests)
-	api := app.Group("", capacity.Middleware, verifier.Middleware, limiter.Middleware)
-
-	hazardHandler := hazard.NewHandler(aggClient)
-	sourceHandler := source.NewHandler(aggClient)
-
-	api.Get("/hazards", hazardHandler.ListHazards)
-	api.Get("/hazards/:hazard_id", hazardHandler.GetHazard)
-	api.Get("/sources/status", sourceHandler.GetSourcesStatus)
+	app := newApp(appDeps{
+		Agg:          aggClient,
+		FieldReports: reports,
+		Protect:      protectedMiddleware(cfg.Concurrency.MaxRequests, verifier.Middleware, limiter.Middleware),
+		Log:          logger,
+	})
 
 	logger.Info("Starting Client API service", "port", cfg.Server.Port)
 	if err := app.Listen(":" + cfg.Server.Port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
+}
+
+func protectedMiddleware(maxRequests int, verify, rateLimit fiber.Handler) []any {
+	capacity := concurrency.New(maxRequests)
+	return []any{verify, capacity.Middleware, rateLimit}
 }
 
 func errorHandler(log *slog.Logger) fiber.ErrorHandler {

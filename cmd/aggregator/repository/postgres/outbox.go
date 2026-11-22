@@ -10,10 +10,10 @@ import (
 )
 
 const selectPendingOutbox = `
-SELECT id, event_id::text, hazard_id::text, payload, COALESCE(correlation_id, '')
+SELECT id, event_id::text, hazard_id::text, payload, COALESCE(correlation_id, ''), COALESCE(trace_parent, '')
 FROM outbox
 WHERE published_at IS NULL
-ORDER BY id
+ORDER BY priority DESC, id
 LIMIT $1`
 
 const markOutboxPublished = `
@@ -27,7 +27,7 @@ func (p *PostgresRepository) PendingOutbox(ctx context.Context, limit int) ([]mo
 	}
 	records, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.OutboxRecord, error) {
 		var r model.OutboxRecord
-		err := row.Scan(&r.ID, &r.EventID, &r.HazardID, &r.Payload, &r.CorrelationID)
+		err := row.Scan(&r.ID, &r.EventID, &r.HazardID, &r.Payload, &r.CorrelationID, &r.TraceParent)
 		return r, err
 	})
 	if err != nil {

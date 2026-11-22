@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-updater
+  labels:
+    app: dashboard-updater
+    bnpb.io/stage: apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard-updater
+  template:
+    metadata:
+      labels:
+        app: dashboard-updater
+        role: consumer
+    spec:
+      enableServiceLinks: false
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 20
+      containers:
+        - name: dashboard-updater
+          image: bnpb/dashboard-updater:TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: dashboard-updater-config
+            - configMapRef:
+                name: bnpb-common
+          readinessProbe:
+            timeoutSeconds: 3
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 256Mi

@@ -8,10 +8,14 @@ components:
   schemas:
     Source:
       type: string
-      enum: [BMKG, PVMBG]
+      enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI]
+    UnprocessedSource:
+      type: string
+      description: Asal pesan gagal. Selain empat sumber bahaya, TIM_LAPANGAN (topic field-reports) dan INTERNAL (consumer hazard-events kita sendiri, lewat topic unprocessed).
+      enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI, TIM_LAPANGAN, INTERNAL]
     HazardType:
       type: string
-      enum: [SEISMIC, VOLCANIC]
+      enum: [SEISMIC, VOLCANIC, WILDFIRE, COASTAL]
     Severity:
       type: string
       enum: [NORMAL, WASPADA, SIAGA, AWAS]
@@ -84,9 +88,42 @@ components:
           $ref: '#/components/schemas/SourceStatusEntry'
         PVMBG:
           $ref: '#/components/schemas/SourceStatusEntry'
+        SENSOR_PANTAI:
+          $ref: '#/components/schemas/SourceStatusEntry'
+    SourceStatusDetail:
+      allOf:
+        - $ref: '#/components/schemas/SourceStatusEntry'
+        - type: object
+          required: [breaker_state]
+          properties:
+            breaker_state:
+              type: string
+              enum: [CLOSED, OPEN, HALF_OPEN]
+            last_error:
+              type: string
+    SensorPantaiStatusDetail:
+      allOf:
+        - $ref: '#/components/schemas/SourceStatusDetail'
+        - type: object
+          properties:
+            station_silence:
+              type: object
+              description: Per stasiun, true bila tidak ada observasi baru, false bila tidak senyap, dan null bila belum diketahui.
+              additionalProperties:
+                type: [boolean, 'null']
+    SourcesStatusMap:
+      type: object
+      required: [BMKG, PVMBG]
+      properties:
+        BMKG:
+          $ref: '#/components/schemas/SourceStatusDetail'
+        PVMBG:
+          $ref: '#/components/schemas/SourceStatusDetail'
+        SENSOR_PANTAI:
+          $ref: '#/components/schemas/SensorPantaiStatusDetail'
     ErrorCode:
       type: string
-      enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, FORBIDDEN_FIELD, NOT_FOUND, RATE_LIMITED, UPSTREAM_UNAVAILABLE, INTERNAL]
+      enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, FORBIDDEN_FIELD, NOT_FOUND, RATE_LIMITED, UPSTREAM_UNAVAILABLE, INTERNAL, overloaded]
     ErrorResponse:
       type: object
       required: [error]
@@ -148,6 +185,13 @@ components:
         minimum: 1
         maximum: 200
         default: 50
+    PageCursor:
+      name: cursor
+      in: query
+      required: false
+      description: String buram dari next_cursor halaman sebelumnya. Halaman berikutnya memakai keyset (ingested_at, hazard_id) sehingga urutan tetap benar lintas shard.
+      schema:
+        type: string
     HazardId:
       name: hazard_id
       in: path

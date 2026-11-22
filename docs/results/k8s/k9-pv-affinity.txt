@@ -1,0 +1,8 @@
+PV                                         CLAIM          NODE     PATH     LOCAL
+pvc-2be1d431-1909-42e2-9f09-b32273bfda06   data-crdb-1    node-c   <none>   /var/lib/rancher/k3s/storage/pvc-2be1d431-1909-42e2-9f09-b32273bfda06_sistem-informasi-kebencanaan-bnpb_data-crdb-1
+pvc-6787efa7-2981-4bea-941c-d7f3795d9224   data-kafka-2   node-c   <none>   /var/lib/rancher/k3s/storage/pvc-6787efa7-2981-4bea-941c-d7f3795d9224_sistem-informasi-kebencanaan-bnpb_data-kafka-2
+pvc-7eeb87c2-eb5b-45d2-ba0c-b5cd2e0d4095   data-kafka-1   node-a   <none>   /var/lib/rancher/k3s/storage/pvc-7eeb87c2-eb5b-45d2-ba0c-b5cd2e0d4095_sistem-informasi-kebencanaan-bnpb_data-kafka-1
+pvc-7eefb289-5e44-41a4-9553-9db137180a01   data-crdb-2    node-d   <none>   /var/lib/rancher/k3s/storage/pvc-7eefb289-5e44-41a4-9553-9db137180a01_sistem-informasi-kebencanaan-bnpb_data-crdb-2
+pvc-b3146f6c-ff0f-4866-9070-23dcfeab1273   data-kafka-0   node-b   <none>   /var/lib/rancher/k3s/storage/pvc-b3146f6c-ff0f-4866-9070-23dcfeab1273_sistem-informasi-kebencanaan-bnpb_data-kafka-0
+pvc-f9f2664b-d15a-46c2-b123-260f58509f79   data-crdb-0    node-a   <none>   /var/lib/rancher/k3s/storage/pvc-f9f2664b-d15a-46c2-b123-260f58509f79_sistem-informasi-kebencanaan-bnpb_data-crdb-0
+pvc-fe82b90c-4b59-4401-a3da-07eabe9a9de7   data-crdb-3    node-b   <none>   /var/lib/rancher/k3s/storage/pvc-fe82b90c-4b59-4401-a3da-07eabe9a9de7_sistem-informasi-kebencanaan-bnpb_data-crdb-3

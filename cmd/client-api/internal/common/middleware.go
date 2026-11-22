@@ -2,6 +2,7 @@ package common
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -76,4 +77,14 @@ func SetSub(c fiber.Ctx, sub string) {
 func GetSub(c fiber.Ctx) string {
 	s, _ := c.Locals(subKey).(string)
 	return s
+}
+
+// HasScope reports whether the token's scope claim, a space-separated list, contains want.
+func HasScope(c fiber.Ctx, want string) bool {
+	for _, s := range strings.Fields(GetScope(c)) {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }

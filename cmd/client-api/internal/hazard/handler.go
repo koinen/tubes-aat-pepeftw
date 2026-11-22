@@ -20,10 +20,10 @@ func NewHandler(agg *aggregator.Client) *Handler {
 }
 
 func (h *Handler) ListHazards(c fiber.Ctx) error {
-	scope := common.GetScope(c)
+	canSeeRaw := common.HasScope(c, ScopeRaw)
 	corrID := common.CorrelationIDFrom(c)
 
-	fields, errCode, errMsg := h.parseFields(c, scope)
+	fields, errCode, errMsg := h.parseFields(c, canSeeRaw)
 	if errCode != "" {
 		status := fiber.StatusBadRequest
 		if errCode == "FORBIDDEN_FIELD" {
@@ -34,7 +34,7 @@ func (h *Handler) ListHazards(c fiber.Ctx) error {
 
 	path := "/internal/hazards" + buildQuery(c)
 
-	result, statusCode, err := h.agg.Get(path, corrID)
+	result, statusCode, err := h.agg.Get(c.Context(), path, corrID)
 	if err != nil {
 		c.Set("Retry-After", "5")
 		return common.WriteError(c, fiber.StatusServiceUnavailable,
@@ -58,7 +58,7 @@ func (h *Handler) ListHazards(c fiber.Ctx) error {
 }
 
 func (h *Handler) GetHazard(c fiber.Ctx) error {
-	scope := common.GetScope(c)
+	canSeeRaw := common.HasScope(c, ScopeRaw)
 	corrID := common.CorrelationIDFrom(c)
 	hazardID := c.Params("hazard_id")
 
@@ -66,7 +66,7 @@ func (h *Handler) GetHazard(c fiber.Ctx) error {
 		return common.WriteError(c, fiber.StatusBadRequest, common.CodeValidation, "hazard_id must be a UUID")
 	}
 
-	fields, errCode, errMsg := h.parseFields(c, scope)
+	fields, errCode, errMsg := h.parseFields(c, canSeeRaw)
 	if errCode != "" {
 		status := fiber.StatusBadRequest
 		if errCode == "FORBIDDEN_FIELD" {
@@ -77,7 +77,7 @@ func (h *Handler) GetHazard(c fiber.Ctx) error {
 
 	path := "/internal/hazards/" + url.PathEscape(hazardID)
 
-	result, statusCode, err := h.agg.Get(path, corrID)
+	result, statusCode, err := h.agg.Get(c.Context(), path, corrID)
 	if err != nil {
 		c.Set("Retry-After", "5")
 		return common.WriteError(c, fiber.StatusServiceUnavailable,
@@ -97,10 +97,10 @@ func (h *Handler) GetHazard(c fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(result)
 }
 
-func (h *Handler) parseFields(c fiber.Ctx, scope string) (fields []string, errCode, errMsg string) {
+func (h *Handler) parseFields(c fiber.Ctx, canSeeRaw bool) (fields []string, errCode, errMsg string) {
 	raw := c.Query("fields")
 	if raw == "" {
-		return DefaultFields(scope), "", ""
+		return DefaultFields(canSeeRaw), "", ""
 	}
 
 	parts := strings.Split(raw, ",")
@@ -113,10 +113,10 @@ func (h *Handler) parseFields(c fiber.Ctx, scope string) (fields []string, errCo
 	}
 
 	if len(fields) == 0 {
-		return DefaultFields(scope), "", ""
+		return DefaultFields(canSeeRaw), "", ""
 	}
 
-	errCode, errMsg = ValidateFields(fields, scope)
+	errCode, errMsg = ValidateFields(fields, canSeeRaw)
 	return fields, errCode, errMsg
 }
 
@@ -130,6 +130,9 @@ func buildQuery(c fiber.Ctx) string {
 	}
 	if v := c.Query("limit"); v != "" {
 		q.Set("limit", v)
+	}
+	if v := c.Query("cursor"); v != "" {
+		q.Set("cursor", v)
 	}
 	if encoded := q.Encode(); encoded != "" {
 		return "?" + encoded

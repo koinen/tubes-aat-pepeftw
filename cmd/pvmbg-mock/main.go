@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+
+	"tubes-aat-pepeftw/internal/telemetry"
 )
 
 const serviceName = "pvmbg-mock"
@@ -75,8 +77,8 @@ func loadConfig() (Config, error) {
 		return cfg, fmt.Errorf("PVMBG_HANG_MAX harus > 0")
 	case cfg.SeedCount < 20:
 		return cfg, fmt.Errorf("PVMBG_SEED_COUNT minimal 20 (spesifikasi)")
-	case cfg.SchemaVersion != 1 && cfg.SchemaVersion != 2:
-		return cfg, fmt.Errorf("PVMBG_SCHEMA_VERSION harus 1 atau 2")
+	case !validSchemaVersion(cfg.SchemaVersion):
+		return cfg, fmt.Errorf("PVMBG_SCHEMA_VERSION: %s", schemaVersionHelp)
 	}
 	return cfg, nil
 }
@@ -100,6 +102,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, err := telemetry.Init(ctx, serviceName)
+	if err != nil {
+		log.Error("tracing_init_failed", "error", err.Error())
+		os.Exit(1)
+	}
+	defer shutdownTracing(context.Background())
 	go runGenerator(ctx, store, gen, state, cfg.ReportInterval, log)
 
 	app := newApp(ctx, cfg, store, state, log)
@@ -124,12 +132,18 @@ func newApp(ctx context.Context, cfg Config, store *Store, state *State, log *sl
 		ReadTimeout:  30 * time.Second,
 		ErrorHandler: errorHandler,
 	})
-	app.Use(correlationMiddleware(log))
+	app.Use(telemetry.Middleware(), correlationMiddleware(log))
+	app.Get("/metrics", telemetry.MetricsHandler())
 
 	app.Get("/health", func(c fiber.Ctx) error {
 		if enabled, _, _ := state.Outage(); enabled {
 			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"status": "outage", "service": serviceName})
 		}
+		return c.JSON(fiber.Map{"status": "ok", "service": serviceName})
+	})
+	// /ready is the readiness probe. It ignores the simulated outage, so the pod stays behind its
+	// Service during one: callers meet the hang or the 503, and POST /admin/outage can end it.
+	app.Get("/ready", func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok", "service": serviceName})
 	})
 
@@ -142,10 +156,20 @@ func newApp(ctx context.Context, cfg Config, store *Store, state *State, log *sl
 			if err != nil {
 				return sendError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 			}
-			return c.JSON(fiber.Map{
+			resp := fiber.Map{
 				"reports":      store.Since(since),
 				"generated_at": time.Now().UTC().Truncate(time.Second).Format(time.RFC3339),
-			})
+			}
+			kind, remaining, corrupt := state.TakeCorrupt()
+			if !corrupt {
+				return c.JSON(resp)
+			}
+			real, err := json.Marshal(resp)
+			if err != nil {
+				return err
+			}
+			log.Info("corrupt_response_served", "correlation_id", correlationID(c), "kind", kind, "remaining", remaining)
+			return sendCorrupt(c, kind, real)
 		})
 
 	admin := adminMiddleware(cfg.AdminKey)
@@ -153,12 +177,12 @@ func newApp(ctx context.Context, cfg Config, store *Store, state *State, log *sl
 		var body struct {
 			Version *int `json:"version"`
 		}
-		if err := json.Unmarshal(c.Body(), &body); err != nil || body.Version == nil ||
-			(*body.Version != 1 && *body.Version != 2) {
-			return sendError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", `body harus {"version": 1} atau {"version": 2}`)
+		if err := json.Unmarshal(c.Body(), &body); err != nil || body.Version == nil || !validSchemaVersion(*body.Version) {
+			return sendError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", `body harus {"version": N}; `+schemaVersionHelp)
 		}
 		state.SetSchemaVersion(*body.Version)
-		log.Info("schema_version_changed", "correlation_id", correlationID(c), "schema_version", *body.Version)
+		log.Info("schema_version_changed", "correlation_id", correlationID(c), "schema_version", *body.Version,
+			"schema_mode", schemaModes[*body.Version])
 		return c.JSON(state.Snapshot())
 	})
 	app.Post("/admin/outage", admin, func(c fiber.Ctx) error {
@@ -177,6 +201,15 @@ func newApp(ctx context.Context, cfg Config, store *Store, state *State, log *sl
 		}
 		state.SetOutage(*body.Enabled, body.Mode)
 		log.Info("outage_changed", "correlation_id", correlationID(c), "enabled", *body.Enabled, "mode", body.Mode)
+		return c.JSON(state.Snapshot())
+	})
+	app.Post("/admin/corrupt", admin, func(c fiber.Ctx) error {
+		kind, count, ok := parseCorruptRequest(c.Body())
+		if !ok {
+			return sendError(c, fiber.StatusBadRequest, "VALIDATION_ERROR", corruptHelp)
+		}
+		state.SetCorrupt(kind, count)
+		log.Info("corrupt_changed", "correlation_id", correlationID(c), "kind", kind, "count", count)
 		return c.JSON(state.Snapshot())
 	})
 	app.Get("/admin/state", admin, func(c fiber.Ctx) error {

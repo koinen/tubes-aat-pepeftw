@@ -30,11 +30,16 @@ type KafkaConfig struct {
 	Brokers string
 	Topic   string
 	GroupID string
+	// FieldReportsTopic receives accepted field reports.
+	FieldReportsTopic string
 }
 
 type AggregatorConfig struct {
 	BaseURL     string
 	InternalKey string
+	// OpsToken calls the aggregator's ops API (unprocessed list and replay). Optional: empty turns
+	// the /unprocessed routes off.
+	OpsToken string
 }
 
 type AuthConfig struct {
@@ -72,6 +77,8 @@ func LoadConfig() (*Config, error) {
 		Brokers: shared.GetEnv("KAFKA_BROKERS", "localhost:9092"),
 		Topic:   shared.GetEnv("KAFKA_TOPIC_AUTH_REVOCATIONS", "auth-revocations"),
 		GroupID: shared.GetEnv("KAFKA_GROUP_ID", "client-api-revocations"),
+
+		FieldReportsTopic: shared.GetEnv("KAFKA_TOPIC_FIELD_REPORTS", "field-reports"),
 	}
 
 	aggBaseURL := strings.TrimRight(shared.GetEnv("AGGREGATOR_URL", "http://localhost:8081"), "/")
@@ -83,6 +90,7 @@ func LoadConfig() (*Config, error) {
 	aggCfg := AggregatorConfig{
 		BaseURL:     aggBaseURL,
 		InternalKey: aggInternalKey,
+		OpsToken:    shared.GetEnv("OPS_TOKEN", ""),
 	}
 
 	jwksURL := shared.GetEnv("AUTH_JWKS_URL", "")
@@ -104,6 +112,9 @@ func LoadConfig() (*Config, error) {
 
 	concurrencyCfg := ConcurrencyConfig{
 		MaxRequests: shared.GetEnvInt("MAX_CONCURRENT_REQUESTS", 200),
+	}
+	if concurrencyCfg.MaxRequests < 2 {
+		return nil, fmt.Errorf("MAX_CONCURRENT_REQUESTS must be at least 2")
 	}
 
 	return &Config{

@@ -1,0 +1,2 @@
+NAME           STATUS   AGE   LABELS
+tester-agent   Active   23s   app=tester-agent,kubernetes.io/metadata.name=tester-agent

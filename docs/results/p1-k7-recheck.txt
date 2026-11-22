@@ -1,0 +1,12 @@
+# dashboard all-time vs SQL ground truth, 18:00:17Z
+dashboard total 6635 partial False unavailable [] {'COASTAL': 1650, 'SEISMIC': 2527, 'TSUNAMI': 319, 'VOLCANIC': 2139}
+source	hazard_type	count
+BMKG	SEISMIC	10412
+PVMBG	VOLCANIC	2139
+SENSOR_PANTAI	COASTAL	1650
+# dashboard with from=1900 (catalog events have historical occurred_at), 18:00:33Z
+dashboard total 14206 partial False {'SEISMIC': 10097, 'COASTAL': 1650, 'TSUNAMI': 320, 'VOLCANIC': 2139}
+source	n	earliest
+BMKG	10420	2000-01-01 00:00:00+00
+PVMBG	2139	2026-09-02 04:31:41+00
+SENSOR_PANTAI	1650	2026-11-20 14:18:21+00

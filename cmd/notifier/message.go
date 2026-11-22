@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type hazardMessage struct {
 	EventID   string        `json:"event_id"`
@@ -8,6 +11,8 @@ type hazardMessage struct {
 	HazardID  string        `json:"hazard_id"`
 	EmittedAt time.Time     `json:"emitted_at"`
 	Payload   hazardPayload `json:"payload"`
+
+	rawPayload json.RawMessage
 }
 
 type hazardPayload struct {

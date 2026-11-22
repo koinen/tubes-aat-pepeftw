@@ -1,0 +1,179 @@
+openapi: 3.1.0
+info:
+  title: Audit API
+  version: 0.1.0
+  description: |
+    Kontrak Lampiran A spesifikasi Milestone 2, dilayani aggregator.
+    Data dibaca lintas 16 unit penyimpanan (shard-0 sampai shard-f, berdasarkan digit hex pertama hazard_id).
+    Unit yang tidak terjangkau tidak menghasilkan error 500, tetapi partial true dan unavailable_units.
+servers:
+  - url: http://localhost:8085
+  - url: http://aggregator:8080
+security:
+  - AuditToken: []
+paths:
+  /internal/audit/events:
+    get:
+      operationId: auditEvents
+      description: Seluruh HazardEvent, urut menaik menurut ingested_at lalu hazard_id.
+      parameters:
+        - $ref: '#/components/parameters/Source'
+        - name: since
+          in: query
+          description: Menyaring ingested_at lebih besar atau sama dengan nilai ini.
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor, partial, unavailable_units]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: './common.yaml#/components/schemas/HazardEvent'
+                  next_cursor: { type: [string, 'null'] }
+                  partial: { type: boolean }
+                  unavailable_units: { type: array, items: { type: string } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+  /internal/audit/checksum:
+    get:
+      operationId: auditChecksum
+      description: SHA-256 atas source_ref_id seluruh HazardEvent sumber tersebut, diurutkan menurut byte, dipisah newline tanpa newline di akhir.
+      parameters:
+        - $ref: '#/components/parameters/SourceRequired'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [source, count, checksum, algorithm, as_of, partial, unavailable_units]
+                properties:
+                  source: { type: string }
+                  count: { type: integer }
+                  checksum: { type: string, pattern: '^[0-9a-f]{64}$' }
+                  algorithm: { type: string, const: sha256 }
+                  as_of: { type: string, format: date-time }
+                  partial: { type: boolean }
+                  unavailable_units: { type: array, items: { type: string } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+  /internal/audit/location:
+    get:
+      operationId: auditLocation
+      description: Node tempat sebuah HazardEvent disimpan. node memakai nama dari kubectl get nodes.
+      parameters:
+        - name: hazard_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hazard_id, locations, partial]
+                properties:
+                  hazard_id: { type: string }
+                  locations:
+                    type: array
+                    items:
+                      type: object
+                      required: [node, unit, role]
+                      properties:
+                        node: { type: string }
+                        unit: { type: string }
+                        role: { type: string, enum: [primary, replica] }
+                  partial: { type: boolean }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /internal/audit/unprocessed:
+    get:
+      operationId: auditUnprocessed
+      description: Pesan berstatus retrying atau parked. Pesan yang sudah pulih tidak muncul.
+      parameters:
+        - $ref: '#/components/parameters/UnprocessedSource'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        message_id: { type: string }
+                        source: { type: string }
+                        received_at: { type: string, format: date-time }
+                        reason: { type: string }
+                        retryable: { type: boolean }
+                        attempts: { type: integer }
+                        status: { type: string, enum: [retrying, parked] }
+                  next_cursor: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    AuditToken:
+      type: http
+      scheme: bearer
+      description: Token audit dari asisten, disimpan pada Secret bnpb-secrets dengan key AUDIT_TOKEN.
+  parameters:
+    Source:
+      name: source
+      in: query
+      schema: { type: string, enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI] }
+    UnprocessedSource:
+      name: source
+      in: query
+      required: false
+      description: Selain empat sumber bahaya, TIM_LAPANGAN (topic field-reports) dan INTERNAL (consumer hazard-events, lewat topic unprocessed).
+      schema: { type: string, enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI, TIM_LAPANGAN, INTERNAL] }
+    SourceRequired:
+      name: source
+      in: query
+      required: true
+      schema: { type: string, enum: [BMKG, PVMBG, SATELIT, SENSOR_PANTAI] }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+    Cursor:
+      name: cursor
+      in: query
+      description: String buram dari next_cursor respons sebelumnya.
+      schema: { type: string }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: object
+                required: [code, message]
+                properties:
+                  code: { type: string, enum: [bad_request, unauthorized, not_found, unavailable, internal] }
+                  message: { type: string }

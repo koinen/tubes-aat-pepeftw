@@ -1,0 +1,8 @@
+NAME                          DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE   CONTAINERS   IMAGES                                                                                         SELECTOR
+daemonset.apps/tester-agent   4         4         4       4            4           <none>          15s   agent        sustuna/tester-agent@sha256:b3143da159cf23a8744ede12b847da6208353754234d53a5a7b46d071cf277ec   app=tester-agent
+
+NAME                     READY   STATUS    RESTARTS   AGE   IP               NODE     NOMINATED NODE   READINESS GATES
+pod/tester-agent-6zjg7   1/1     Running   0          15s   100.64.254.55    node-b   <none>           <none>
+pod/tester-agent-7zk6d   1/1     Running   0          15s   100.126.91.125   node-c   <none>           <none>
+pod/tester-agent-rgsqb   1/1     Running   0          15s   100.121.115.24   node-a   <none>           <none>
+pod/tester-agent-v5hws   1/1     Running   0          15s   100.108.243.53   node-d   <none>           <none>

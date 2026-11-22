@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crdb-scripts
+  labels:
+    bnpb.io/stage: infra
+data:
+  init.sh: |
+    set -e
+    crdb=/cockroach/cockroach
+    until "$crdb" init --insecure --host="$CRDB_INIT_HOST" > /tmp/init.log 2>&1 || grep -q "already been initialized" /tmp/init.log
+    do
+      cat /tmp/init.log
+      echo "waiting for $CRDB_INIT_HOST"
+      sleep 3
+    done
+    sql() {
+      for attempt in 1 2 3 4 5 6 7 8 9 10
+      do
+        if timeout -s KILL 30 "$crdb" sql --insecure --host="$CRDB_SQL_HOST" -e "SET statement_timeout = '20s'" -e "$1"
+        then
+          return 0
+        fi
+        echo "retrying ($attempt): $1"
+        sleep 3
+      done
+      return 1
+    }
+    sql "CREATE DATABASE IF NOT EXISTS ${DB_NAME}"
+    sql "CREATE USER IF NOT EXISTS ${DB_USER}"
+    sql "GRANT ALL ON DATABASE ${DB_NAME} TO ${DB_USER}"
+    sql "GRANT ALL ON SCHEMA ${DB_NAME}.public TO ${DB_USER}"
+    sql "SET CLUSTER SETTING server.time_until_store_dead = '75s'"
+    for zone in "DATABASE system" "RANGE meta" "RANGE system" "RANGE liveness"
+    do
+      if sql "SELECT raw_config_sql FROM [SHOW ZONE CONFIGURATION FROM ${zone}]" | grep -q "num_replicas = 3"
+      then
+        echo "zone ${zone} already has 3 replicas"
+        continue
+      fi
+      sql "ALTER ${zone} CONFIGURE ZONE USING num_replicas = 3"
+    done
